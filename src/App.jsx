@@ -4,7 +4,7 @@ import axios from 'axios';
 import ConfigDrawer from './components/ConfigDrawer';
 import PlatformCard from './components/PlatformCard';
 import { normalizeConfig, requiresApiKey } from './lib/providers';
-import { buildGenerationRequest, normalizeGenerationResponse } from './lib/generation';
+import { buildGenerationRequest, normalizeGenerationResponse, appendSignature } from './lib/generation';
 import { postToFacebook, postToInstagram, postToInstagramPersonal, postToThreads, postToXhs, postToFacebookPersonal, postToInstagramBrowser } from './lib/publishing';
 
 // Platforms with native API / automation support
@@ -29,6 +29,27 @@ function App() {
     analyzer: { landmark: '', mood: '', tone: '' },
     drafts: { instagram: '', xhs: '', facebook: '', threads: '' }
   });
+
+  const [includeSignature, setIncludeSignature] = useState(() => {
+    const saved = localStorage.getItem('include_signature');
+    return saved !== null ? JSON.parse(saved) : true;
+  });
+
+  const handleToggleSignature = useCallback((checked) => {
+    setIncludeSignature(checked);
+    localStorage.setItem('include_signature', JSON.stringify(checked));
+
+    setResults(prev => {
+      const nextDrafts = {};
+      Object.entries(prev.drafts).forEach(([platform, content]) => {
+        nextDrafts[platform] = appendSignature(content, checked);
+      });
+      return {
+        ...prev,
+        drafts: nextDrafts
+      };
+    });
+  }, []);
 
   // Update a single credential field and auto-save to localStorage
   const handleCredsChange = useCallback((field, value) => {
@@ -186,7 +207,13 @@ function App() {
         data: request.data,
       });
 
-      setResults(normalizeGenerationResponse(config, response.data));
+      const rawRes = normalizeGenerationResponse(config, response.data);
+      if (includeSignature) {
+        Object.keys(rawRes.drafts).forEach(key => {
+          rawRes.drafts[key] = appendSignature(rawRes.drafts[key], true);
+        });
+      }
+      setResults(rawRes);
     } catch (err) {
       const rawMsg = err.response?.data?.error?.message
         || err.response?.data?.message
@@ -275,6 +302,23 @@ function App() {
                 value={context}
                 onChange={(e) => setContext(e.target.value)}
               />
+            </div>
+
+            {/* Toggle Signature */}
+            <div className="flex items-center justify-between p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-sm hover:border-slate-300 dark:hover:border-slate-700 transition">
+              <div className="space-y-0.5">
+                <span className="text-sm font-bold text-slate-700 dark:text-slate-200">附加 AI 產生標記</span>
+                <p className="text-xs text-slate-400">在每篇貼文最後面加上「本篇貼文由 social media agent 產生」</p>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={includeSignature} 
+                  onChange={(e) => handleToggleSignature(e.target.checked)} 
+                  className="sr-only peer" 
+                />
+                <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none dark:bg-slate-700 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+              </label>
             </div>
 
             {/* Vision Insight Tags */}
