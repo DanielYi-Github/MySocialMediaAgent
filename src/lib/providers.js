@@ -39,6 +39,16 @@ export const PROVIDERS = {
     requiresApiKey: false,
     description: '本地模型，必須使用視覺模型（如 llava、llava-llama3、moondream）。',
   },
+  gemini: {
+    id: 'gemini',
+    label: 'Google Gemini',
+    protocol: 'openai',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    model: 'gemini-2.0-flash',
+    apiKeyPlaceholder: 'AIzaSy...',
+    requiresApiKey: true,
+    description: '使用 Gemini 官方提供的 OpenAI 相容 API。',
+  },
   custom: {
     id: 'custom',
     label: 'Custom Compatible API',
@@ -78,9 +88,11 @@ export function normalizeConfig(savedConfig) {
 }
 
 export function buildTestRequest(config) {
+  const cleanBaseUrl = config.baseUrl.replace(/\/+$/, '');
+
   if (config.protocol === 'anthropic') {
     return {
-      url: `${config.baseUrl}/messages`,
+      url: `${cleanBaseUrl}/messages`,
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': config.apiKey,
@@ -99,11 +111,12 @@ export function buildTestRequest(config) {
   };
 
   if (config.apiKey) {
-    headers.Authorization = `Bearer ${config.apiKey}`;
+    const cleanApiKey = config.apiKey.trim();
+    headers.Authorization = `Bearer ${cleanApiKey}`;
   }
 
   return {
-    url: `${config.baseUrl}/chat/completions`,
+    url: `${cleanBaseUrl}/chat/completions`,
     headers,
     data: {
       model: config.model,

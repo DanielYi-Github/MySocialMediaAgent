@@ -59,7 +59,16 @@ app.post('/api/llm/proxy', async (req, res) => {
     res.json(response.data);
   } catch (err) {
     const status = err.response?.status || 502;
-    const message = err.response?.data?.error?.message || err.message;
+    let message = err.message;
+    if (err.response?.data) {
+      if (Array.isArray(err.response.data) && err.response.data[0]?.error?.message) {
+        message = err.response.data[0].error.message;
+      } else if (err.response.data.error?.message) {
+        message = err.response.data.error.message;
+      } else if (typeof err.response.data.error === 'string') {
+        message = err.response.data.error;
+      }
+    }
     res.status(status).json({ error: { message } });
   }
 });

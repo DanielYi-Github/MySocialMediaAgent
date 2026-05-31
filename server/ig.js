@@ -121,6 +121,25 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
 
     await page.waitForTimeout(2000);
 
+    // 關閉任何「開啟通知」或「稍後再說」的彈出視窗
+    try {
+      const notNowSelectors = [
+        'button:has-text("稍後再說")',
+        'button:has-text("Not Now")',
+        '[role="button"]:has-text("稍後再說")',
+        '[role="button"]:has-text("Not Now")'
+      ];
+      for (const sel of notNowSelectors) {
+        const btn = page.locator(sel).first();
+        if (await btn.isVisible({ timeout: 1500 })) {
+          console.log('IG: Dismissing "Not Now" dialog.');
+          await btn.click();
+          await page.waitForTimeout(1000);
+          break;
+        }
+      }
+    } catch {}
+
     // Click the Create/New Post button (+)
     const createClicked = await tryClickCreateButton(page);
     if (!createClicked) {

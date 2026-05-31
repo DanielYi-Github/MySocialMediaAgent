@@ -188,27 +188,21 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
     for (let step = 0; step < 2; step++) {
       await page.waitForTimeout(2000);
       try {
-        const secondaryDialogVisible = await page.locator('div[role="dialog"]').count() > 0;
-        if (secondaryDialogVisible) {
-          console.log(`FB: Detected active dialog on confirmation step ${step + 1}, trying to click post button again.`);
-          await tryClickPostButton(page);
+        const clickedAgain = await tryClickPostButton(page);
+        if (clickedAgain) {
+          console.log(`FB: Clicked a secondary post/share button at step ${step + 1}.`);
         } else {
-          break; // no dialog, post probably finished
+          console.log(`FB: No secondary post/share buttons found at step ${step + 1}. Post likely finished.`);
+          break; // no more buttons to click
         }
       } catch (e) {
         break;
       }
     }
 
-    // Wait for the active composer dialog to disappear, indicating successful publish
-    try {
-      await page.locator('div[role="dialog"]').waitFor({ state: 'detached', timeout: 4000 });
-      console.log('FB: Post dialog detached successfully. Closing browser.');
-    } catch (e) {
-      console.warn('FB: Timeout waiting for post dialog to detach, closing anyway.');
-    }
+    await page.waitForTimeout(2000);
+    console.log('FB: Post process finished. Closing browser.');
 
-    await page.waitForTimeout(1000);
     await browser.close().catch(() => {});
 
     return { success: true };
@@ -416,7 +410,8 @@ async function tryClickPostButton(page) {
   for (const sel of selectors) {
     try {
       const el = page.locator(sel).first();
-      const visible = await el.isVisible({ timeout: 2000 });
+      // 極短的 timeout，因為對話框如果可見，按鈕就應該立刻被找到。避免無按鈕時卡住長達數十秒。
+      const visible = await el.isVisible({ timeout: 400 });
       if (visible) {
         await el.click();
         return true;
