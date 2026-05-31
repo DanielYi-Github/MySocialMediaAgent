@@ -276,13 +276,15 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
 
     let clicked = false;
     const publishLocators = [
-      // 1. xhs-publish-btn inside button containing '发布'
+      // 1. Playwright 的深層文字尋找
+      page.locator('text="发布"').last(),
+      // 2. 常見的 submit button class
+      page.locator('.publish-btn, .submit-btn, .btn-publish').first(),
+      // 3. xhs-publish-btn 內部的 button
       page.locator('xhs-publish-btn button').filter({ hasText: '发布' }),
-      // 2. xhs-publish-btn containing element with text '发布'
-      page.locator('xhs-publish-btn >> text="发布"'),
-      // 3. xhs-publish-btn's second button (first is '暂存离开', second is '发布')
+      // 4. xhs-publish-btn 內部的第二個 button (發佈)
       page.locator('xhs-publish-btn button').nth(1),
-      // 4. Any button containing '发布' (last one, usually page submit)
+      // 5. 傳統的 button 尋找
       page.locator('button:has-text("发布")').last()
     ];
 
@@ -291,8 +293,11 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
         if (await locator.isVisible({ timeout: 2000 })) {
           const text = await locator.textContent();
           console.log(`XHS: Found publish button candidate with text: "${text?.trim()}"`);
-          await locator.click({ force: true });
-          console.log('XHS: Clicked publish button successfully!');
+          // 模擬真實的人類點擊
+          await locator.hover({ force: true });
+          await page.waitForTimeout(200);
+          await locator.click({ force: true, delay: 100 });
+          console.log('XHS: Clicked publish button successfully via locator!');
           clicked = true;
           break;
         }
@@ -302,17 +307,39 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
     }
 
     if (!clicked) {
-      console.log('XHS: All standard locators failed. Trying coordinate-based click on xhs-publish-btn...');
+      console.log('XHS: All standard locators failed. Trying shotgun coordinate-based click on xhs-publish-btn...');
       try {
         const publishWidget = page.locator('xhs-publish-btn').first();
         await publishWidget.waitFor({ state: 'visible', timeout: 5000 });
         const box = await publishWidget.boundingBox();
         if (box) {
-          // The "发布" button is on the right side of the custom element (75% x-coordinate)
-          const clickX = box.x + box.width * 0.75;
-          const clickY = box.y + box.height * 0.5;
-          await page.mouse.click(clickX, clickY);
-          console.log(`XHS: Clicked xhs-publish-btn via coordinates: (${clickX}, ${clickY})`);
+          // 由於 "发布" 按鈕在右側（左側是 "暂存离开"），我們在右半部進行多次點擊。
+          // 不論按鈕是置中還是靠右，我們從 center + 40px 一路點擊到 width - 20px
+          const centerY = box.y + box.height * 0.5;
+          const centerX = box.x + box.width * 0.5;
+          
+          console.log(`XHS: Widget box is x:${box.x}, width:${box.width}. CenterX is ${centerX}.`);
+          
+          // 產生 5 個散彈槍點擊位置，涵蓋整個右半部
+          const offsets = [
+            box.width * 0.1,  // 置中佈局時的按鈕位置 (center + 10%)
+            box.width * 0.2,  
+            box.width * 0.3,
+            box.width * 0.4,  // 靠右佈局時的按鈕位置 (center + 40%)
+            box.width * 0.45
+          ];
+
+          for (const offset of offsets) {
+            const clickX = centerX + offset;
+            console.log(`XHS: Shotgun click at offset +${Math.round(offset)}px -> (${Math.round(clickX)}, ${Math.round(centerY)})`);
+            await page.mouse.move(clickX, centerY);
+            await page.waitForTimeout(50);
+            await page.mouse.down();
+            await page.waitForTimeout(50);
+            await page.mouse.up();
+            await page.waitForTimeout(100);
+          }
+          console.log('XHS: Shotgun coordinate clicks completed.');
           clicked = true;
         }
       } catch (err) {
