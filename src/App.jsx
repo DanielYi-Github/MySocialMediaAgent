@@ -5,7 +5,7 @@ import ConfigDrawer from './components/ConfigDrawer';
 import PlatformCard from './components/PlatformCard';
 import { normalizeConfig, requiresApiKey } from './lib/providers';
 import { buildGenerationRequest, normalizeGenerationResponse } from './lib/generation';
-import { postToFacebook, postToInstagram, postToInstagramPersonal, postToThreads, postToXhs } from './lib/publishing';
+import { postToFacebook, postToInstagram, postToInstagramPersonal, postToThreads, postToXhs, postToFacebookPersonal, postToInstagramBrowser } from './lib/publishing';
 
 // Platforms with native API / automation support
 const API_PLATFORMS = new Set(['facebook', 'instagram', 'threads', 'xhs']);
@@ -23,6 +23,7 @@ function App() {
   const [publishStatus, setPublishStatus] = useState({});
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishConfig, setPublishConfig] = useState(loadPublishConfig);
+  // 統一使用單一事實來源 publishConfig，不再另外維護會重置的本地狀態
 
   const [results, setResults] = useState({
     analyzer: { landmark: '', mood: '', tone: '' },
@@ -61,33 +62,47 @@ function App() {
 
       try {
         if (platform === 'facebook') {
-          if (!publishConfig.fbPageToken || !publishConfig.fbPageId) {
-            throw new Error('請先展開下方「API 憑證設定」填入 Facebook Page Token 和 Page ID。');
-          }
-          await postToFacebook({
-            pageId: publishConfig.fbPageId,
-            pageToken: publishConfig.fbPageToken,
-            message: results.drafts.facebook,
-            imageDataUrl: primaryImage,
-            imgbbKey: publishConfig.imgbbKey,
-          });
-        } else if (platform === 'instagram') {
-          const igType = publishConfig.igAccountType ?? 'business';
-          if (igType === 'creator') {
-            if (!publishConfig.igCreatorToken || !publishConfig.igCreatorUserId) {
-              throw new Error('請先展開下方「API 憑證設定」→ 切換到「創作者帳號」填入 Instagram 用戶存取權杖和用戶 ID。');
+          const fbType = publishConfig.fbAccountType || 'business';
+          if (fbType === 'personal') {
+            await postToFacebookPersonal({
+              caption: results.drafts.facebook,
+              imageDataUrl: primaryImage,
+            });
+          } else {
+            if (!publishConfig.fbPageToken || !publishConfig.fbPageId) {
+              throw new Error('請先展開下方「API 憑證設定」填入 Facebook Page Token 和 Page ID。');
             }
-            await postToInstagramPersonal({
-              igUserId: publishConfig.igCreatorUserId,
-              igToken: publishConfig.igCreatorToken,
-              caption: results.drafts.instagram,
+            await postToFacebook({
+              pageId: publishConfig.fbPageId,
+              pageToken: publishConfig.fbPageToken,
+              message: results.drafts.facebook,
               imageDataUrl: primaryImage,
               imgbbKey: publishConfig.imgbbKey,
+            });
+          }
+        } else if (platform === 'instagram') {
+          const igType = publishConfig.igAccountType || 'business';
+          if (igType === 'personal') {
+            await postToInstagramBrowser({
+              caption: results.drafts.instagram,
+              imageDataUrl: primaryImage,
             });
           } else {
             if (!publishConfig.fbPageToken || !publishConfig.igUserId) {
               throw new Error('請先展開下方「API 憑證設定」填入 Facebook Page Token 和 Instagram User ID。');
             }
+              // Quick validation: check that the provided Page Access Token is valid
+              try {
+                await axios.post('http://localhost:3001/api/llm/proxy', {
+                  url: 'https://graph.facebook.com/v20.0/me',
+                  method: 'GET',
+                  headers: {},
+                  data: { access_token: publishConfig.fbPageToken },
+                }, { timeout: 10000 });
+              } catch (err) {
+                const raw = err.response?.data || err.message || String(err);
+                throw new Error(`Facebook Page Token 無效或解析失敗：${JSON.stringify(raw)}`);
+              }
             await postToInstagram({
               igUserId: publishConfig.igUserId,
               pageToken: publishConfig.fbPageToken,
@@ -330,7 +345,48 @@ function App() {
                     已確認 {confirmedPlatforms.length} 個平台：
                     <span className="text-indigo-600">{confirmedPlatforms.map(p => p === 'xhs' ? '小紅書' : p).join('、')}</span>
                   </h3>
-                  <p className="text-xs text-slate-400 mt-0.5">小紅書無公開 API，確認後請手動複製發布。</p>
+                  <p className="text-xs text-slate-400 mt-0.5">小紅書無公開 API，確認後請手動複製發布。個人帳號透過瀏覽器自動化發布。</p>
+                  {/* Per-post account type toggles for Facebook and Instagram */}
+                  {(confirmedPlatforms.includes('facebook') || confirmedPlatforms.includes('instagram')) && (
+                    <div className="flex flex-wrap gap-3 mt-2">
+                      {confirmedPlatforms.includes('facebook') && (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-slate-500 font-medium">Facebook：</span>
+                          {['business', 'personal'].map(t => (
+                            <button
+                              key={t}
+                              onClick={() => handleCredsChange('fbAccountType', t)}
+                              className={`px-2.5 py-1 rounded-full border font-medium transition ${
+                                (publishConfig.fbAccountType || 'business') === t
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-indigo-400'
+                              }`}
+                            >
+                              {t === 'business' ? '🏢 粉絲專頁' : '👤 個人帳號'}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {confirmedPlatforms.includes('instagram') && (
+                        <div className="flex items-center gap-1.5 text-xs">
+                          <span className="text-slate-500 font-medium">Instagram：</span>
+                          {['business', 'personal'].map(t => (
+                            <button
+                              key={t}
+                              onClick={() => handleCredsChange('igAccountType', t)}
+                              className={`px-2.5 py-1 rounded-full border font-medium transition ${
+                                (publishConfig.igAccountType || 'business') === t
+                                  ? 'bg-indigo-600 text-white border-indigo-600'
+                                  : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-600 hover:border-indigo-400'
+                              }`}
+                            >
+                              {t === 'business' ? '🏢 商業帳號' : '👤 個人帳號'}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <button
                   onClick={handlePublish}

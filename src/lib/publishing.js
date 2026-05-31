@@ -168,3 +168,47 @@ export async function postToThreads({ threadsUserId, threadsToken, text, imageDa
   }, auth);
 }
 
+/**
+ * Post to Facebook personal timeline via Playwright browser automation.
+ * Requires the user to be logged into Facebook via the browser login widget.
+ *
+ * @param {object} opts
+ * @param {string} opts.caption       - Post caption/text
+ * @param {string} [opts.imageDataUrl] - Image as a data URL (data:image/...;base64,...)
+ */
+export async function postToFacebookPersonal({ caption, imageDataUrl }) {
+  let imageBase64 = null;
+  let imageMime = null;
+  if (imageDataUrl) {
+    const [meta, data] = imageDataUrl.split(',');
+    imageMime = meta.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+    imageBase64 = data;
+  }
+  const resp = await axios.post(
+    'http://localhost:3001/api/fb/publish',
+    { caption, imageBase64, imageMime },
+    { timeout: 120000 },
+  );
+  return resp.data;
+}
+
+/**
+ * Post to Instagram personal account via Playwright browser automation.
+ * Requires the user to be logged into Instagram via the browser login widget.
+ *
+ * @param {object} opts
+ * @param {string} opts.caption        - Post caption
+ * @param {string} opts.imageDataUrl   - Image as a data URL (required for Instagram)
+ */
+export async function postToInstagramBrowser({ caption, imageDataUrl }) {
+  if (!imageDataUrl) throw new Error('Instagram 發文必須包含圖片。');
+  const [meta, data] = imageDataUrl.split(',');
+  const imageMime = meta.match(/:(.*?);/)?.[1] ?? 'image/jpeg';
+  const imageBase64 = data;
+  const resp = await axios.post(
+    'http://localhost:3001/api/ig/publish',
+    { caption, imageBase64, imageMime },
+    { timeout: 120000 },
+  );
+  return resp.data;
+}

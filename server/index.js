@@ -2,6 +2,16 @@ import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
 import { checkLoginStatus, openLoginBrowser, publish } from './xhs.js';
+import {
+  checkLoginStatus as fbCheckLogin,
+  openLoginBrowser as fbOpenLogin,
+  publish as fbPublish,
+} from './fb.js';
+import {
+  checkLoginStatus as igCheckLogin,
+  openLoginBrowser as igOpenLogin,
+  publish as igPublish,
+} from './ig.js';
 
 const app = express();
 const PORT = 3001;
@@ -63,6 +73,92 @@ app.post('/api/xhs/publish', async (req, res) => {
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Facebook Personal ───────────────────────────────────────────────────────
+
+// GET /api/fb/status → { loggedIn: boolean }
+app.get('/api/fb/status', async (req, res) => {
+  try {
+    const loggedIn = await fbCheckLogin();
+    res.json({ loggedIn });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/fb/login → opens visible browser for user to login
+app.post('/api/fb/login', async (req, res) => {
+  try {
+    const result = await fbOpenLogin();
+    res.json(result);
+  } catch (err) {
+    console.error('fb/login error:', err.message);
+    const msg = String(err.message || err);
+    if (msg.includes('Executable doesn\'t exist') || msg.includes('Please run the following command to download new browsers') || msg.includes('Looks like Playwright was just installed')) {
+      return res.status(500).json({ error: 'Playwright browsers 未安裝或遺失。請在專案目錄執行：npx playwright install（或 npx playwright install chromium），然後重啟後台服務。' });
+    }
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /api/fb/publish → { caption, imageBase64?, imageMime? }
+app.post('/api/fb/publish', async (req, res) => {
+  const { caption, imageBase64, imageMime } = req.body;
+  try {
+    const result = await fbPublish({ caption, imageBase64, imageMime });
+    res.json(result);
+  } catch (err) {
+    console.error('fb/publish error:', err.message);
+    const msg = String(err.message || err);
+    if (msg.includes('Executable doesn\'t exist') || msg.includes('Please run the following command to download new browsers') || msg.includes('Looks like Playwright was just installed')) {
+      return res.status(500).json({ error: 'Playwright browsers 未安裝或遺失。請在專案目錄執行：npx playwright install（或 npx playwright install chromium），然後重啟後台服務。' });
+    }
+    res.status(500).json({ error: msg });
+  }
+});
+
+// ─── Instagram Personal ──────────────────────────────────────────────────────
+
+// GET /api/ig/status → { loggedIn: boolean }
+app.get('/api/ig/status', async (req, res) => {
+  try {
+    const loggedIn = await igCheckLogin();
+    res.json({ loggedIn });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/ig/login → opens visible browser for user to login
+app.post('/api/ig/login', async (req, res) => {
+  try {
+    const result = await igOpenLogin();
+    res.json(result);
+  } catch (err) {
+    console.error('ig/login error:', err.message);
+    const msg = String(err.message || err);
+    if (msg.includes('Executable doesn\'t exist') || msg.includes('Please run the following command to download new browsers') || msg.includes('Looks like Playwright was just installed')) {
+      return res.status(500).json({ error: 'Playwright browsers 未安裝或遺失。請在專案目錄執行：npx playwright install（或 npx playwright install chromium），然後重啟後台服務。' });
+    }
+    res.status(500).json({ error: msg });
+  }
+});
+
+// POST /api/ig/publish → { caption, imageBase64, imageMime? }
+app.post('/api/ig/publish', async (req, res) => {
+  const { caption, imageBase64, imageMime } = req.body;
+  try {
+    const result = await igPublish({ caption, imageBase64, imageMime });
+    res.json(result);
+  } catch (err) {
+    console.error('ig/publish error:', err.message);
+    const msg = String(err.message || err);
+    if (msg.includes('Executable doesn\'t exist') || msg.includes('Please run the following command to download new browsers') || msg.includes('Looks like Playwright was just installed')) {
+      return res.status(500).json({ error: 'Playwright browsers 未安裝或遺失。請在專案目錄執行：npx playwright install（或 npx playwright install chromium），然後重啟後台服務。' });
+    }
+    res.status(500).json({ error: msg });
   }
 });
 

@@ -4,8 +4,8 @@ import { Copy, Globe2, Check, ChevronDown, ChevronUp, Eye, EyeOff, ExternalLink,
 
 const XHS_SERVER = 'http://localhost:3001';
 
-// Login widget for XHS browser-automation flow (no API key — uses saved browser profile)
-function XhsLoginWidget() {
+// Generic browser-automation login widget — used for XHS, Facebook personal, Instagram personal
+function BrowserLoginWidget({ statusUrl, loginUrl, platformLabel, accentColor = 'red' }) {
   const [status, setStatus] = useState('unknown');
   const [msg, setMsg] = useState('');
 
@@ -15,7 +15,7 @@ function XhsLoginWidget() {
     setStatus('checking');
     setMsg('');
     try {
-      const res = await axios.get(`${XHS_SERVER}/api/xhs/status`, { timeout: 20000 });
+      const res = await axios.get(`${XHS_SERVER}${statusUrl}`, { timeout: 20000 });
       setStatus(res.data.loggedIn ? 'logged_in' : 'not_logged_in');
     } catch {
       setStatus('server_offline');
@@ -26,7 +26,7 @@ function XhsLoginWidget() {
     setStatus('logging_in');
     setMsg('');
     try {
-      await axios.post(`${XHS_SERVER}/api/xhs/login`, {}, { timeout: 320000 });
+      await axios.post(`${XHS_SERVER}${loginUrl}`, {}, { timeout: 320000 });
       setStatus('logged_in');
     } catch (err) {
       setStatus('not_logged_in');
@@ -51,6 +51,12 @@ function XhsLoginWidget() {
     unknown: 'text-slate-400',
   };
 
+  const accentClasses = {
+    red: 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border-red-200 dark:border-red-700 hover:bg-red-100 dark:hover:bg-red-900/30',
+    blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30',
+    pink: 'bg-fuchsia-50 dark:bg-fuchsia-900/20 text-fuchsia-600 dark:text-fuchsia-400 border-fuchsia-200 dark:border-fuchsia-700 hover:bg-fuchsia-100 dark:hover:bg-fuchsia-900/30',
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between text-[11px]">
@@ -62,9 +68,9 @@ function XhsLoginWidget() {
           type="button"
           onClick={handleLogin}
           disabled={status === 'logging_in' || status === 'server_offline'}
-          className="flex-1 py-1.5 text-[11px] font-medium bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-700 rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 disabled:opacity-40 transition"
+          className={`flex-1 py-1.5 text-[11px] font-medium border rounded-md disabled:opacity-40 transition ${accentClasses[accentColor] || accentClasses.red}`}
         >
-          {status === 'logging_in' ? '等待瀏覽器登入...' : '登入小紅書'}
+          {status === 'logging_in' ? '等待瀏覽器登入...' : `登入 ${platformLabel}`}
         </button>
         <button
           type="button"
@@ -85,6 +91,11 @@ function XhsLoginWidget() {
   );
 }
 
+// Backwards-compat alias for XHS
+function XhsLoginWidget() {
+  return <BrowserLoginWidget statusUrl="/api/xhs/status" loginUrl="/api/xhs/login" platformLabel="小紅書" accentColor="red" />;
+}
+
 const icons = {
   instagram: <div className="w-5 h-5 rounded text-[10px] font-bold text-white flex items-center justify-center bg-gradient-to-br from-fuchsia-500 via-rose-500 to-amber-400">IG</div>,
   xhs: <div className="w-5 h-5 bg-red-600 text-white flex items-center justify-center text-[10px] font-bold rounded">紅</div>,
@@ -96,23 +107,45 @@ const icons = {
 const PLATFORM_CONFIG = {
   facebook: {
     apiSupported: true,
-    fields: [
-      { key: 'fbPageToken', label: 'Page Access Token', type: 'password', placeholder: 'EAAxxxxxxx...' },
-      { key: 'fbPageId', label: 'Page ID', type: 'text', placeholder: '123456789012345' },
-      { key: 'imgbbKey', label: 'imgbb API Key（發圖必填）', type: 'password', placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', hint: '圖片需先上傳至 imgbb 才能發布。免費申請：imgbb.com' },
+    accountTypeKey: 'fbAccountType',
+    accountTypes: [
+      {
+        key: 'business',
+        label: '粉絲專頁',
+        fields: [
+          { key: 'fbPageToken', label: 'Page Access Token', type: 'password', placeholder: 'EAAxxxxxxx...' },
+          { key: 'fbPageId', label: 'Page ID', type: 'text', placeholder: '123456789012345' },
+          { key: 'imgbbKey', label: 'imgbb API Key（發圖必填）', type: 'password', placeholder: 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx', hint: '圖片需先上傳至 imgbb 才能發布。免費申請：imgbb.com' },
+        ],
+        guide: {
+          title: '粉絲專頁（Business API）設定',
+          steps: [
+            { step: '1', text: '前往 Meta 開發者平台，點擊「建立應用程式」，類型選「其他」→「商業」，填入名稱後建立', link: { label: 'developers.facebook.com/apps', url: 'https://developers.facebook.com/apps' } },
+            { step: '2', text: '在應用程式儀表板左側點擊「加入產品」，加入「Graph API」與「粉絲專頁（Pages）」產品' },
+            { step: '3', text: '前往「工具」→「Graph API 測試工具」，右上角選擇你的應用程式', link: { label: 'Graph API Explorer', url: 'https://developers.facebook.com/tools/explorer' } },
+            { step: '4', text: '點擊「產生存取權杖」→ 選擇你的 Facebook 粉絲專頁，勾選權限：pages_manage_posts、pages_read_engagement，點擊「產生」' },
+            { step: '5', text: '複製產生的 Page Access Token（注意：這是 Page Token，不是 User Token）' },
+            { step: '6', text: '在你的粉絲專頁「關於（About）」頁面最底部可找到純數字的 Page ID' },
+          ],
+          note: '短效 Token 僅 1 小時有效。建議到「存取權杖偵錯工具」→「延長存取權杖」換成長效版本（60 天）。',
+        },
+      },
+      {
+        key: 'personal',
+        label: '個人帳號',
+        fields: [],
+        guide: {
+          title: '個人帳號設定（瀏覽器自動化）',
+          steps: [
+            { step: '1', text: '安裝服務依賴（一次性）：執行 npm install，完成後執行 npm run setup:xhs 下載 Chromium' },
+            { step: '2', text: '改用 npm run dev:all 啟動專案（同時啟動前端 + 自動化後台服務）' },
+            { step: '3', text: '展開上方「⚙ API 憑證設定」，點擊「登入 Facebook」→ 瀏覽器視窗自動彈出，手動完成登入後視窗自動關閉' },
+            { step: '4', text: '狀態顯示「已登入 ✓」後即可使用自動發文，後續無需重複登入' },
+          ],
+          note: '此功能透過瀏覽器自動化模擬操作（非官方 API）。Facebook 官方 Graph API 不支援個人帳號發文，請注意這可能違反 Facebook 使用規則。',
+        },
+      },
     ],
-    guide: {
-      title: '如何取得 Facebook 發文憑證',
-      steps: [
-        { step: '1', text: '前往 Meta 開發者平台，點擊「建立應用程式」，類型選「其他」→「商業」，填入名稱後建立', link: { label: 'developers.facebook.com/apps', url: 'https://developers.facebook.com/apps' } },
-        { step: '2', text: '在應用程式儀表板左側點擊「加入產品」，加入「Graph API」與「粉絲專頁（Pages）」產品' },
-        { step: '3', text: '前往「工具」→「Graph API 測試工具」，右上角選擇你的應用程式', link: { label: 'Graph API Explorer', url: 'https://developers.facebook.com/tools/explorer' } },
-        { step: '4', text: '點擊「產生存取權杖」→ 選擇你的 Facebook 粉絲專頁，勾選權限：pages_manage_posts、pages_read_engagement，點擊「產生」' },
-        { step: '5', text: '複製產生的 Page Access Token（注意：這是 Page Token，不是 User Token）' },
-        { step: '6', text: '在你的粉絲專頁「關於（About）」頁面最底部可找到純數字的 Page ID' },
-      ],
-      note: '短效 Token 僅 1 小時有效。建議到「存取權杖偵錯工具」→「延長存取權杖」換成長效版本（60 天）。注意：Facebook API 僅支援粉絲專頁（Page）發文，個人帳號（Profile）無法透過 API 發文，此為 Meta 的平台限制。',
-    },
   },
   instagram: {
     apiSupported: true,
@@ -137,29 +170,22 @@ const PLATFORM_CONFIG = {
             { step: '6', text: '取得 IG 商業帳號 ID：在 Explorer 執行 GET /{page-id}?fields=instagram_business_account，複製回傳的 instagram_business_account.id 值' },
             { step: '7', text: '前往 imgbb.com 免費申請 API Key（Instagram API 要求圖片必須為公開 HTTPS URL）', link: { label: 'api.imgbb.com', url: 'https://api.imgbb.com' } },
           ],
-          note: '需要 Facebook 粉絲專頁並連結 IG 商業帳號，適合品牌或企業。如要讓他人帳號授權此 App 發文（非僅限自己），需提交 App Review。圖片規格：JPEG，8MB 以內。',
+          note: '需要 Facebook 粉絲專頁並連結 IG 商業帳號，適合品牌或企業。請確認：① 在 Graph API Explorer 產生的是 Page Access Token（通常以 "EAA" 開頭），而非 User Token；② Instagram Business ID 請從 GET /{page-id}?fields=instagram_business_account 取得；③ 圖片需為 JPEG，8MB 以內且為公開 HTTPS URL（可使用 imgbb 取得）。如要讓他人帳號授權此 App 發文（非僅限自己），需提交 App Review。',
         },
       },
       {
-        key: 'creator',
-        label: '創作者帳號',
-        fields: [
-          { key: 'igCreatorToken', label: 'Instagram 用戶存取權杖', type: 'password', placeholder: 'IGQVJxxxxxxx...（60 天長效）' },
-          { key: 'igCreatorUserId', label: 'Instagram 用戶 ID', type: 'text', placeholder: '17841xxxxxxxxxx' },
-          { key: 'imgbbKey', label: 'imgbb API Key（發圖必填）', type: 'password', placeholder: '從 imgbb.com 免費申請', link: { label: 'api.imgbb.com', url: 'https://api.imgbb.com' } },
-        ],
+        key: 'personal',
+        label: '個人帳號',
+        fields: [],
         guide: {
-          title: '個人/創作者帳號 API 設定（Instagram Login）',
+          title: '個人帳號設定（瀏覽器自動化）',
           steps: [
-            { step: '1', text: '確認 IG 帳號已切換為「創作者帳號」（IG App → 設定 → 帳號 → 切換為專業帳號 → 創作者）' },
-            { step: '2', text: '前往 Meta 開發者平台 → 建立應用程式 → 使用案例選「管理 Instagram 訊息和內容」', link: { label: 'developers.facebook.com/apps', url: 'https://developers.facebook.com/apps' } },
-            { step: '3', text: '進入使用案例 → 自訂 → 選擇「含有 Instagram 登入的 API 設定」→ 點擊「新增所有必要權限」（系統自動加入 instagram_business_basic + instagram_business_content_publish）' },
-            { step: '4', text: '在「產生存取權杖」區塊點擊「新增帳號」→ 在彈出視窗中以 Instagram 帳號登入並授權 → 點擊「儲存」' },
-            { step: '5', text: '取得用戶 ID：呼叫 GET https://graph.instagram.com/me?access_token={your_token}，複製回傳的 id 值' },
-            { step: '6', text: '換成長效 Token（60 天）：在「存取權杖偵錯工具」延長', link: { label: '存取權杖偵錯工具', url: 'https://developers.facebook.com/tools/debug/accesstoken/' } },
-            { step: '7', text: '前往 imgbb.com 申請 API Key（Instagram API 要求圖片必須為公開 HTTPS URL）', link: { label: 'api.imgbb.com', url: 'https://api.imgbb.com' } },
+            { step: '1', text: '安裝服務依賴（一次性）：執行 npm install，完成後執行 npm run setup:xhs 下載 Chromium' },
+            { step: '2', text: '改用 npm run dev:all 啟動專案（同時啟動前端 + 自動化後台服務）' },
+            { step: '3', text: '點擊「登入 Instagram」→ 瀏覽器視窗自動彈出，手動完成登入後視窗自動關閉' },
+            { step: '4', text: '狀態顯示「已登入 ✓」後即可使用自動發文，後續無需重複登入' },
           ],
-          note: '此方式使用 Instagram Login，API endpoint 為 graph.instagram.com，不需要 Facebook 粉絲專頁。帳號須為創作者或商業專業帳號，純個人帳號不支援 Content Publishing API。',
+          note: '此功能透過瀏覽器自動化模擬操作（非官方 API），支援所有類型的 Instagram 個人帳號。發文時會短暫彈出瀏覽器視窗，完成後自動關閉。請注意這可能違反 Instagram 使用規則。',
         },
       },
     ],
@@ -272,6 +298,12 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
   const [showCreds, setShowCreds] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
 
+  useEffect(() => {
+    if (confirmed) {
+      setShowCreds(true);
+    }
+  }, [confirmed]);
+
   const cfg = PLATFORM_CONFIG[platform];
   const activeAt = cfg.accountTypes
     ? (cfg.accountTypes.find(at => at.key === creds?.[cfg.accountTypeKey]) ?? cfg.accountTypes[0])
@@ -373,23 +405,50 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
               <XhsLoginWidget />
             )}
 
+            {/* Facebook personal: browser automation login widget */}
+            {platform === 'facebook' && activeAt?.key === 'personal' && cfg.apiSupported && (
+              <BrowserLoginWidget
+                statusUrl="/api/fb/status"
+                loginUrl="/api/fb/login"
+                platformLabel="Facebook"
+                accentColor="blue"
+              />
+            )}
+
+            {/* Instagram personal: browser automation login widget */}
+            {platform === 'instagram' && activeAt?.key === 'personal' && cfg.apiSupported && (
+              <BrowserLoginWidget
+                statusUrl="/api/ig/status"
+                loginUrl="/api/ig/login"
+                platformLabel="Instagram"
+                accentColor="pink"
+              />
+            )}
+
             {/* Account type selector (IG + Threads) */}
             {cfg.accountTypes && (
               <div className="flex gap-0.5 p-0.5 bg-slate-100 dark:bg-slate-700/60 rounded-lg">
-                {cfg.accountTypes.map(at => (
-                  <button
-                    key={at.key}
-                    type="button"
-                    onClick={() => { onCredsChange(cfg.accountTypeKey, at.key); setShowGuide(false); }}
-                    className={`flex-1 py-1.5 rounded text-[11px] font-medium transition ${
-                      activeAt.key === at.key
-                        ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm'
-                        : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-                    }`}
-                  >
-                    {at.label}
-                  </button>
-                ))}
+                {
+                  // Always render account tabs in a consistent order: business (left), personal (right)
+                  (['business', 'personal']).map(key => {
+                    const at = cfg.accountTypes.find(a => a.key === key) || cfg.accountTypes.find(a => a.key === key) || cfg.accountTypes[0];
+                    if (!at) return null;
+                    return (
+                      <button
+                        key={at.key}
+                        type="button"
+                        onClick={() => { onCredsChange(cfg.accountTypeKey, at.key); setShowGuide(false); }}
+                        className={`flex-1 py-1.5 rounded text-[11px] font-medium transition ${
+                          activeAt.key === at.key
+                            ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm'
+                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
+                        }`}
+                      >
+                        {at.label}
+                      </button>
+                    );
+                  })
+                }
               </div>
             )}
 
