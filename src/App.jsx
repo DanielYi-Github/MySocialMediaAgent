@@ -289,7 +289,7 @@ function App() {
     }
   };
 
-  const generateSinglePlatformContent = async (platform) => {
+  const generateSinglePlatformContent = async (platform, customSys = null, customUser = null) => {
     const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
     if (requiresApiKey(config.provider) && !config.apiKey) {
       alert('請先在設定中填寫 API Key');
@@ -309,6 +309,22 @@ function App() {
         userContext: context,
         currentContent: results.drafts[platform]
       });
+
+      // Apply custom prompts if provided
+      if (customSys !== null) {
+        if (config.protocol === 'anthropic') {
+          request.data.system = customSys;
+        } else {
+          request.data.messages[0].content = customSys;
+        }
+      }
+      if (customUser !== null) {
+        if (config.protocol === 'anthropic') {
+          request.data.messages[0].content[0].text = customUser;
+        } else {
+          request.data.messages[1].content[0].text = customUser;
+        }
+      }
 
       const response = await axios.post('http://localhost:3001/api/llm/proxy', {
         url: request.url,
@@ -334,6 +350,24 @@ function App() {
       alert(`針對 ${platform === 'xhs' ? '小紅書' : platform} 的重新生成失敗: ` + rawMsg);
     } finally {
       setPlatformLoading(prev => ({ ...prev, [platform]: false }));
+    }
+  };
+
+  const getPlatformDefaultPrompts = (platform) => {
+    const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
+    if (!previews.length) return { systemPrompt: '', userPrompt: '' };
+    try {
+      const request = buildSinglePlatformGenerationRequest(config, platform, {
+        imageDataUrls: previews,
+        userContext: context,
+        currentContent: results.drafts[platform]
+      });
+      return {
+        systemPrompt: request.systemPrompt,
+        userPrompt: request.userPrompt
+      };
+    } catch {
+      return { systemPrompt: '', userPrompt: '' };
     }
   };
 
@@ -451,7 +485,7 @@ function App() {
             {/* Action buttons row */}
             <div className="flex flex-col sm:flex-row gap-4 pt-2">
               <button 
-                onClick={generateContent}
+                onClick={() => generateContent()}
                 disabled={!previews.length || isLoading}
                 className="flex-1 py-4 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-300 dark:disabled:from-slate-800 dark:disabled:to-slate-800 text-white rounded-xl font-bold text-base transition-all shadow-lg hover:shadow-indigo-500/20 hover:scale-[1.01] active:scale-[0.99] flex items-center justify-center gap-3 cursor-pointer disabled:cursor-not-allowed"
               >
@@ -478,25 +512,29 @@ function App() {
             <h2 className="text-xl font-extrabold tracking-tight m-0">平台草稿預覽 4×1</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 text-left">
-            {Object.entries(results.drafts).map(([platform, content]) => (
-              <PlatformCard
-                key={platform}
-                platform={platform}
-                content={content}
-                isLoading={isLoading || platformLoading[platform]}
-                isPlatformLoading={platformLoading[platform]}
-                confirmed={confirmed[platform]}
-                onConfirm={() => handleConfirm(platform)}
-                creds={publishConfig}
-                onCredsChange={handleCredsChange}
-                onRegenerate={() => generateSinglePlatformContent(platform)}
-                onPreviewPrompt={() => handlePreviewSinglePrompt(platform)}
-                onEdit={(val) => setResults({
-                  ...results,
-                  drafts: { ...results.drafts, [platform]: val }
-                })}
-              />
-            ))}
+            {Object.entries(results.drafts).map(([platform, content]) => {
+              const defPrompts = getPlatformDefaultPrompts(platform);
+              return (
+                <PlatformCard
+                  key={platform}
+                  platform={platform}
+                  content={content}
+                  isLoading={isLoading || platformLoading[platform]}
+                  isPlatformLoading={platformLoading[platform]}
+                  confirmed={confirmed[platform]}
+                  onConfirm={() => handleConfirm(platform)}
+                  creds={publishConfig}
+                  onCredsChange={handleCredsChange}
+                  onRegenerate={(sys, user) => generateSinglePlatformContent(platform, sys, user)}
+                  defaultSystemPrompt={defPrompts.systemPrompt}
+                  defaultUserPrompt={defPrompts.userPrompt}
+                  onEdit={(val) => setResults({
+                    ...results,
+                    drafts: { ...results.drafts, [platform]: val }
+                  })}
+                />
+              );
+            })}
           </div>
 
           {/* Publish Bar */}
@@ -598,11 +636,11 @@ function App() {
       {/* Prompt Preview Modal */}
       {promptPreview.isOpen && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-3xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden glass-panel text-left">
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl w-full max-w-5xl max-h-[85vh] flex flex-col shadow-2xl overflow-hidden glass-panel text-left">
             <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200/60 dark:border-slate-800/60">
               <h3 className="text-base font-bold flex items-center gap-2">
                 <Terminal className="w-5 h-5 text-indigo-500" />
-                LLM 提示詞預覽 (Prompt Preview)
+                LLM 提示詞編輯與預覽
               </h3>
               <button 
                 onClick={() => setPromptPreview(prev => ({ ...prev, isOpen: false }))}
@@ -625,9 +663,11 @@ function App() {
                     <ClipboardCopy className="w-3.5 h-3.5" /> 複製
                   </button>
                 </div>
-                <pre className="p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60 rounded-xl text-[11px] font-mono whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
-                  {promptPreview.systemPrompt}
-                </pre>
+                <textarea
+                  className="w-full h-72 p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60 rounded-xl text-[11px] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-y text-slate-800 dark:text-slate-200"
+                  value={promptPreview.systemPrompt}
+                  onChange={(e) => setPromptPreview(prev => ({ ...prev, systemPrompt: e.target.value }))}
+                />
               </div>
 
               <div>
@@ -643,17 +683,28 @@ function App() {
                     <ClipboardCopy className="w-3.5 h-3.5" /> 複製
                   </button>
                 </div>
-                <pre className="p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60 rounded-xl text-[11px] font-mono whitespace-pre-wrap leading-relaxed max-h-40 overflow-y-auto">
-                  {promptPreview.userPrompt}
-                </pre>
+                <textarea
+                  className="w-full h-36 p-4 bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800/60 rounded-xl text-[11px] font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-y text-slate-800 dark:text-slate-200"
+                  value={promptPreview.userPrompt}
+                  onChange={(e) => setPromptPreview(prev => ({ ...prev, userPrompt: e.target.value }))}
+                />
               </div>
             </div>
-            <div className="px-6 py-4 bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800/60 flex justify-end">
+            <div className="px-6 py-4 bg-slate-50/50 dark:bg-slate-900/50 border-t border-slate-200/60 dark:border-slate-800/60 flex justify-end gap-3">
               <button
                 onClick={() => setPromptPreview(prev => ({ ...prev, isOpen: false }))}
+                className="px-4 py-2 border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-sm font-semibold transition cursor-pointer text-slate-700 dark:text-slate-250"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => {
+                  setPromptPreview(prev => ({ ...prev, isOpen: false }));
+                  generateContent(promptPreview.systemPrompt, promptPreview.userPrompt);
+                }}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition cursor-pointer"
               >
-                關閉預覽
+                套用並生成草稿
               </button>
             </div>
           </div>

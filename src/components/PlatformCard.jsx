@@ -312,10 +312,19 @@ export default function PlatformCard({
   creds, 
   onCredsChange,
   onRegenerate,
-  onPreviewPrompt
+  defaultSystemPrompt,
+  defaultUserPrompt
 }) {
   const [showCreds, setShowCreds] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [localSysPrompt, setLocalSysPrompt] = useState(defaultSystemPrompt || '');
+  const [localUserPrompt, setLocalUserPrompt] = useState(defaultUserPrompt || '');
+
+  useEffect(() => {
+    setLocalSysPrompt(defaultSystemPrompt || '');
+    setLocalUserPrompt(defaultUserPrompt || '');
+  }, [defaultSystemPrompt, defaultUserPrompt]);
 
   useEffect(() => {
     if (confirmed) {
@@ -354,20 +363,24 @@ export default function PlatformCard({
           )}
         </div>
         <div className="flex items-center gap-0.5">
-          {/* Preview Prompt */}
+          {/* Toggle local prompt editor */}
           <button
-            onClick={onPreviewPrompt}
+            onClick={() => setShowPromptEditor(!showPromptEditor)}
             disabled={isLoading}
-            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-400 hover:text-indigo-500 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
-            title="預覽此平台提示詞"
+            className={`p-1.5 rounded-lg transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${
+              showPromptEditor 
+                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-200/40' 
+                : 'text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'
+            }`}
+            title="編輯此平台提示詞"
           >
             <Terminal className="w-3.5 h-3.5" />
           </button>
           
           {/* Single platform regenerate */}
           <button
-            onClick={onRegenerate}
-            disabled={isLoading || !content}
+            onClick={() => onRegenerate(localSysPrompt, localUserPrompt)}
+            disabled={isLoading || (!content && !localSysPrompt)}
             className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-400 hover:text-indigo-500 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
             title="針對此平台重新生成文案"
           >
@@ -385,6 +398,44 @@ export default function PlatformCard({
           </button>
         </div>
       </div>
+
+      {/* Local Prompt Editor (Shown above content area) */}
+      {showPromptEditor && (
+        <div className="bg-slate-50/60 dark:bg-slate-950/40 p-3 border-b border-slate-200/50 dark:border-slate-800/50 space-y-2.5 text-left">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black tracking-wider text-indigo-500 dark:text-indigo-400 uppercase flex items-center gap-1 select-none">
+              <Terminal className="w-3 h-3" /> 編輯此平台提示詞
+            </span>
+            <button 
+              type="button" 
+              onClick={() => setShowPromptEditor(false)}
+              className="text-[9px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold transition"
+            >
+              收起
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            <div>
+              <span className="text-[9px] font-black text-slate-400/80 block mb-0.5 select-none">SYSTEM PROMPT</span>
+              <textarea
+                className="w-full h-24 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[10px] font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y text-slate-700 dark:text-slate-350"
+                value={localSysPrompt}
+                onChange={(e) => setLocalSysPrompt(e.target.value)}
+                placeholder="編輯此平台專用 System Prompt..."
+              />
+            </div>
+            <div>
+              <span className="text-[9px] font-black text-slate-400/80 block mb-0.5 select-none">USER PROMPT</span>
+              <textarea
+                className="w-full h-16 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[10px] font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y text-slate-700 dark:text-slate-355"
+                value={localUserPrompt}
+                onChange={(e) => setLocalUserPrompt(e.target.value)}
+                placeholder="編輯此平台專用 User Prompt..."
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Content Area */}
       <div className="flex-1 p-4 flex flex-col min-h-[220px]">
