@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { Copy, Globe2, Check, ChevronDown, ChevronUp, Eye, EyeOff, ExternalLink, Info } from 'lucide-react';
+import { Copy, Globe2, Check, ChevronDown, ChevronUp, Eye, EyeOff, ExternalLink, Info, Terminal, Sparkles } from 'lucide-react';
 
 const XHS_SERVER = 'http://localhost:3001';
 
@@ -294,9 +294,37 @@ function CredentialField({ fieldCfg, value, onChange }) {
   );
 }
 
-export default function PlatformCard({ platform, content, onEdit, isLoading, confirmed, onConfirm, creds, onCredsChange }) {
+const glowClasses = {
+  instagram: 'hover:glow-instagram hover:scale-[1.02] hover:border-fuchsia-500/30 dark:hover:border-fuchsia-500/20',
+  xhs: 'hover:glow-xhs hover:scale-[1.02] hover:border-red-500/30 dark:hover:border-red-500/20',
+  facebook: 'hover:glow-facebook hover:scale-[1.02] hover:border-blue-500/30 dark:hover:border-blue-500/20',
+  threads: 'hover:glow-threads hover:scale-[1.02] hover:border-slate-300/30 dark:hover:border-slate-700/20',
+};
+
+export default function PlatformCard({ 
+  platform, 
+  content, 
+  onEdit, 
+  isLoading, 
+  isPlatformLoading, 
+  confirmed, 
+  onConfirm, 
+  creds, 
+  onCredsChange,
+  onRegenerate,
+  defaultSystemPrompt,
+  defaultUserPrompt
+}) {
   const [showCreds, setShowCreds] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
+  const [showPromptEditor, setShowPromptEditor] = useState(false);
+  const [localSysPrompt, setLocalSysPrompt] = useState(defaultSystemPrompt || '');
+  const [localUserPrompt, setLocalUserPrompt] = useState(defaultUserPrompt || '');
+
+  useEffect(() => {
+    setLocalSysPrompt(defaultSystemPrompt || '');
+    setLocalUserPrompt(defaultUserPrompt || '');
+  }, [defaultSystemPrompt, defaultUserPrompt]);
 
   useEffect(() => {
     if (confirmed) {
@@ -318,44 +346,109 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
   };
 
   return (
-    <div className={`flex flex-col bg-white dark:bg-slate-800 border-2 rounded-xl shadow-sm transition-all ${
+    <div className={`flex flex-col bg-white/60 dark:bg-slate-900/60 border-2 rounded-2xl shadow-md transition-all duration-300 backdrop-blur-md ${
       confirmed
-        ? 'border-emerald-500 dark:border-emerald-500'
-        : 'border-transparent dark:border-slate-700 hover:shadow-md'
+        ? 'border-emerald-500 dark:border-emerald-500 shadow-emerald-500/5'
+        : `border-transparent dark:border-slate-800/80 hover:shadow-xl ${glowClasses[platform] || ''}`
     }`}>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b dark:border-slate-700">
-        <div className="flex items-center gap-2">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200/60 dark:border-slate-800/60">
+        <div className="flex items-center gap-2 select-none">
           {icons[platform]}
-          <span className="font-bold capitalize">{platform === 'xhs' ? '小紅書' : platform}</span>
+          <span className="font-bold capitalize text-slate-800 dark:text-slate-200">{platform === 'xhs' ? '小紅書' : platform}</span>
           {confirmed && (
             <span className="flex items-center gap-0.5 text-[11px] font-semibold text-emerald-500">
               <Check className="w-3 h-3" /> 已確認
             </span>
           )}
         </div>
-        <button
-          onClick={handleCopy}
-          disabled={!content}
-          className="p-1.5 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition text-gray-500 disabled:opacity-30"
-          title="複製文案"
-        >
-          <Copy className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-0.5">
+          {/* Toggle local prompt editor */}
+          <button
+            onClick={() => setShowPromptEditor(!showPromptEditor)}
+            disabled={isLoading}
+            className={`p-1.5 rounded-lg transition disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed ${
+              showPromptEditor 
+                ? 'bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-200/40' 
+                : 'text-slate-400 hover:text-indigo-500 hover:bg-slate-100 dark:hover:bg-slate-800 border border-transparent'
+            }`}
+            title="編輯此平台提示詞"
+          >
+            <Terminal className="w-3.5 h-3.5" />
+          </button>
+          
+          {/* Single platform regenerate */}
+          <button
+            onClick={() => onRegenerate(localSysPrompt, localUserPrompt)}
+            disabled={isLoading || (!content && !localSysPrompt)}
+            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-400 hover:text-indigo-500 disabled:opacity-30 cursor-pointer disabled:cursor-not-allowed"
+            title="針對此平台重新生成文案"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Copy */}
+          <button
+            onClick={handleCopy}
+            disabled={!content}
+            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition text-slate-400 hover:text-indigo-500 disabled:opacity-30 cursor-pointer"
+            title="複製文案"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
+      {/* Local Prompt Editor (Shown above content area) */}
+      {showPromptEditor && (
+        <div className="bg-slate-50/60 dark:bg-slate-950/40 p-3 border-b border-slate-200/50 dark:border-slate-800/50 space-y-2.5 text-left">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black tracking-wider text-indigo-500 dark:text-indigo-400 uppercase flex items-center gap-1 select-none">
+              <Terminal className="w-3 h-3" /> 編輯此平台提示詞
+            </span>
+            <button 
+              type="button" 
+              onClick={() => setShowPromptEditor(false)}
+              className="text-[9px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 font-bold transition"
+            >
+              收起
+            </button>
+          </div>
+          <div className="space-y-1.5">
+            <div>
+              <span className="text-[9px] font-black text-slate-400/80 block mb-0.5 select-none">SYSTEM PROMPT</span>
+              <textarea
+                className="w-full h-24 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[10px] font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y text-slate-700 dark:text-slate-350"
+                value={localSysPrompt}
+                onChange={(e) => setLocalSysPrompt(e.target.value)}
+                placeholder="編輯此平台專用 System Prompt..."
+              />
+            </div>
+            <div>
+              <span className="text-[9px] font-black text-slate-400/80 block mb-0.5 select-none">USER PROMPT</span>
+              <textarea
+                className="w-full h-16 p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-[10px] font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-indigo-500/50 resize-y text-slate-700 dark:text-slate-355"
+                value={localUserPrompt}
+                onChange={(e) => setLocalUserPrompt(e.target.value)}
+                placeholder="編輯此平台專用 User Prompt..."
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Content Area */}
-      <div className="flex-1 p-4">
+      <div className="flex-1 p-4 flex flex-col min-h-[220px]">
         {isLoading ? (
-          <div className="space-y-3 animate-pulse">
-            <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-3/4"></div>
-            <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded"></div>
-            <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-5/6"></div>
-            <div className="h-4 bg-gray-200 dark:bg-slate-700 rounded w-2/3"></div>
+          <div className="space-y-3 animate-pulse flex-1 flex flex-col justify-center">
+            <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-3/4"></div>
+            <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded"></div>
+            <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-5/6"></div>
+            <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-2/3"></div>
           </div>
         ) : (
           <textarea
-            className="w-full h-full min-h-[200px] bg-transparent resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500/30 rounded p-1 text-sm leading-relaxed overflow-y-auto"
+            className="w-full flex-1 bg-transparent resize-none focus:outline-none rounded p-1 text-sm leading-relaxed overflow-y-auto"
             value={content}
             onChange={(e) => onEdit(e.target.value)}
             placeholder="尚未生成文案..."
@@ -368,10 +461,10 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
         <button
           onClick={onConfirm}
           disabled={!content || isLoading}
-          className={`w-full py-2 rounded-lg text-sm font-semibold transition flex items-center justify-center gap-1.5 ${
+          className={`w-full py-2 rounded-xl text-sm font-bold transition flex items-center justify-center gap-1.5 cursor-pointer disabled:cursor-not-allowed ${
             confirmed
-              ? 'bg-emerald-500 text-white hover:bg-emerald-600'
-              : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-600 disabled:opacity-40'
+              ? 'bg-emerald-500 text-white hover:bg-emerald-600 shadow-sm shadow-emerald-500/10'
+              : 'bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 hover:bg-indigo-50 dark:hover:bg-slate-800 disabled:opacity-40'
           }`}
         >
           {confirmed ? <><Check className="w-4 h-4" /> 已確認草稿</> : '確認此草稿'}
@@ -379,10 +472,10 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
       </div>
 
       {/* Credentials & Guide Toggle */}
-      <div className="border-t dark:border-slate-700">
+      <div className="border-t border-slate-200/60 dark:border-slate-800/60">
         <button
           onClick={() => setShowCreds(v => !v)}
-          className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-medium text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition"
+          className="w-full flex items-center justify-between px-4 py-2.5 text-xs font-bold text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800/40 transition"
         >
           <span className="flex items-center gap-1.5">
             {cfg.apiSupported ? '⚙ API 憑證設定' : '📋 發布指引'}
@@ -394,7 +487,7 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
           <div className="px-4 pb-4 space-y-3">
             {/* API not supported notice */}
             {!cfg.apiSupported && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2 text-[11px] text-amber-700 dark:text-amber-300 flex items-start gap-1.5">
+              <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/60 rounded-xl px-3 py-2.5 text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5">
                 <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                 <span>此平台無官方 API，僅支援手動發布。</span>
               </div>
@@ -427,20 +520,19 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
 
             {/* Account type selector (IG + Threads) */}
             {cfg.accountTypes && (
-              <div className="flex gap-0.5 p-0.5 bg-slate-100 dark:bg-slate-700/60 rounded-lg">
+              <div className="flex gap-0.5 p-0.5 bg-slate-100 dark:bg-slate-800/80 rounded-xl border border-slate-200/20 dark:border-slate-800/20">
                 {
-                  // Always render account tabs in a consistent order: business (left), personal (right)
                   (['business', 'personal']).map(key => {
-                    const at = cfg.accountTypes.find(a => a.key === key) || cfg.accountTypes.find(a => a.key === key) || cfg.accountTypes[0];
+                    const at = cfg.accountTypes.find(a => a.key === key) || cfg.accountTypes[0];
                     if (!at) return null;
                     return (
                       <button
                         key={at.key}
                         type="button"
                         onClick={() => { onCredsChange(cfg.accountTypeKey, at.key); setShowGuide(false); }}
-                        className={`flex-1 py-1.5 rounded text-[11px] font-medium transition ${
+                        className={`flex-1 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
                           activeAt.key === at.key
-                            ? 'bg-white dark:bg-slate-600 text-slate-800 dark:text-white shadow-sm'
+                            ? 'bg-white dark:bg-slate-700 text-slate-800 dark:text-white shadow-sm'
                             : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
                         }`}
                       >
@@ -474,7 +566,7 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
               <div>
                 <button
                   onClick={() => setShowGuide(v => !v)}
-                  className="flex items-center gap-1.5 text-[11px] font-medium text-indigo-500 hover:text-indigo-600 transition"
+                  className="flex items-center gap-1.5 text-[11px] font-bold text-indigo-500 hover:text-indigo-600 transition cursor-pointer"
                 >
                   <Info className="w-3 h-3" />
                   {showGuide ? '收起操作指引' : effectiveGuide.title}
@@ -482,23 +574,23 @@ export default function PlatformCard({ platform, content, onEdit, isLoading, con
                 </button>
 
                 {showGuide && (
-                  <div className="mt-2 space-y-1.5">
+                  <div className="mt-2.5 space-y-2">
                     {effectiveGuide.steps.map(s => (
-                      <div key={s.step} className="flex gap-2 text-[11px] text-slate-600 dark:text-slate-300">
-                        <span className="w-4 h-4 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-400 font-bold text-[10px] flex items-center justify-center shrink-0 mt-0.5">{s.step}</span>
-                        <span className="leading-relaxed">
-                          {s.text}
-                          {s.link && (
-                            <a href={s.link.url} target="_blank" rel="noopener noreferrer"
-                              className="ml-1 inline-flex items-center gap-0.5 text-indigo-500 hover:underline">
-                              {s.link.label} <ExternalLink className="w-2.5 h-2.5" />
-                            </a>
-                          )}
+                      <div key={s.step} className="flex gap-2 text-[11px] text-slate-600 dark:text-slate-400">
+                        <span className="w-4 h-4 rounded-full bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 font-black text-[9px] flex items-center justify-center shrink-0 mt-0.5">{s.step}</span>
+                        <span className="leading-relaxed font-medium">
+                           {s.text}
+                           {s.link && (
+                             <a href={s.link.url} target="_blank" rel="noopener noreferrer"
+                               className="ml-1 inline-flex items-center gap-0.5 text-indigo-500 hover:underline">
+                               {s.link.label} <ExternalLink className="w-2.5 h-2.5" />
+                             </a>
+                           )}
                         </span>
                       </div>
                     ))}
                     {effectiveGuide.note && (
-                      <div className="mt-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg p-2 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+                      <div className="mt-2 bg-slate-50 dark:bg-slate-850/40 rounded-xl p-3 text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed font-medium">
                         ℹ {effectiveGuide.note}
                       </div>
                     )}
