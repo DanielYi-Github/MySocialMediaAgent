@@ -93,7 +93,7 @@ export async function openLoginBrowser() {
  * @param {string} opts.caption       - Post text/caption
  * @param {Array}  [opts.images]      - Array of { base64, mime }
  */
-export async function publish({ caption, images = [], llmConfig = null }) {
+export async function publish({ caption, images = [], llmConfig = null, forceWebwright = false }) {
   const browser = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     viewport: { width: 1280, height: 800 },
@@ -120,6 +120,27 @@ export async function publish({ caption, images = [], llmConfig = null }) {
     // Dismiss any "Remember Password" or overlay notifications
     await dismissOverlays(page);
 
+    if (images && images.length > 0) {
+      tmpFiles = images.map((img, idx) => {
+        const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+        const tmpPath = path.join(os.tmpdir(), `fb-${Date.now()}-${idx}.${ext}`);
+        fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
+        return tmpPath;
+      });
+    }
+
+    if (forceWebwright) {
+      console.log('FB: forceWebwright is true. Handing over entirely to Webwright...');
+      const uploadInstruction = tmpFiles.length > 0 
+        ? `\n2. 點擊上傳圖片按鈕（綠色相片圖示），或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。` 
+        : '';
+      const goal = `請幫我完成完整的 Facebook 發文流程：\n1. 點擊首頁上的「有什麼新鮮事？」發文框。${uploadInstruction}\n3. 尋找文案輸入框，並輸入內容：\n${caption}\n4. 最後點擊「發佈」按鈕完成發文。`;
+      await healAndExecute(page, goal, new Error('強制啟用 Webwright 模式'), llmConfig);
+      await page.waitForTimeout(4000);
+      setTimeout(() => browser.close().catch(() => {}), 5000);
+      return { success: true };
+    }
+
     // Click the "What's on your mind?" composer input to open the post dialog
     const composerClicked = await tryClickComposer(page);
     if (!composerClicked) {
@@ -137,13 +158,6 @@ export async function publish({ caption, images = [], llmConfig = null }) {
 
     // Upload images if provided
     if (images && images.length > 0) {
-      tmpFiles = images.map((img, idx) => {
-        const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
-        const tmpPath = path.join(os.tmpdir(), `fb-${Date.now()}-${idx}.${ext}`);
-        fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
-        return tmpPath;
-      });
-
       let attached = false;
       try {
         // Intercept native filechooser via clicking the photo button (prevents OS dialog from opening)

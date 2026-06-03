@@ -96,7 +96,7 @@ export async function openLoginBrowser() {
  * @param {string} opts.content      - Post body text
  * @param {Array}  [opts.images]     - Array of { base64, mime }
  */
-export async function publish({ title, content, images = [], llmConfig = null }) {
+export async function publish({ title, content, images = [], llmConfig = null, forceWebwright = false }) {
   const browser = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     viewport: { width: 1280, height: 800 },
@@ -161,7 +161,6 @@ export async function publish({ title, content, images = [], llmConfig = null })
     // Extra settle time for Vue event handler binding
     await page.waitForTimeout(800);
 
-    // Upload images if provided
     if (images && images.length > 0) {
       tmpFiles = images.map((img, idx) => {
         const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
@@ -169,6 +168,22 @@ export async function publish({ title, content, images = [], llmConfig = null })
         fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
         return tmpPath;
       });
+    }
+
+    if (forceWebwright) {
+      console.log('XHS: forceWebwright is true. Handing over entirely to Webwright...');
+      const uploadInstruction = tmpFiles.length > 0 
+        ? `\n2. 點擊上傳圖片按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。` 
+        : '';
+      const goal = `請幫我完成完整的小紅書發文流程：\n1. 尋找發佈貼文或圖文上傳的區域。${uploadInstruction}\n3. 尋找標題輸入框，輸入：\n${title}\n4. 尋找內文輸入框，並輸入內容：\n${content}\n5. 最後點擊「发布」按鈕（通常在右側）完成發文。`;
+      await healAndExecute(page, goal, new Error('強制啟用 Webwright 模式'), llmConfig);
+      await page.waitForTimeout(4000);
+      setTimeout(() => browser.close().catch(() => {}), 5000);
+      return { success: true };
+    }
+
+    // Upload images if provided
+    if (images && images.length > 0) {
 
       // Primary strategy: native fileChooser interception by clicking "上传图片" button.
       let uploaded = false;

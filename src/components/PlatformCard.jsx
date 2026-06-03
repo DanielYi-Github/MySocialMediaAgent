@@ -598,6 +598,25 @@ export default function PlatformCard({
                 )}
               </div>
             )}
+            
+            {/* Force Webwright Toggle */}
+            <div className="mt-3 pt-3 border-t border-slate-200/60 dark:border-slate-800/60">
+              <label className="flex items-center gap-2 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  checked={creds?.[`forceWebwright_${platform}`] || false}
+                  onChange={(e) => onCredsChange(`forceWebwright_${platform}`, e.target.checked)}
+                />
+                <span className="text-[11px] font-bold text-slate-600 dark:text-slate-300 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition">
+                  🤖 強制啟用 AI Webwright (跳過常規腳本)
+                </span>
+              </label>
+              <p className="text-[10px] text-slate-400 dark:text-slate-500 mt-1 pl-6 leading-relaxed">
+                全程交由 AI 視覺代理自動辨識畫面並執行操作。此為極限測試功能，速度較慢且成功率取決於模型表現。
+              </p>
+            </div>
+
           </div>
         )}
       </div>

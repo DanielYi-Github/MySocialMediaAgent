@@ -101,6 +101,7 @@ function App() {
               caption: results.drafts.facebook,
               imageDataUrls,
               llmConfig,
+              forceWebwright: publishConfig.forceWebwright_facebook,
             });
           } else {
             if (!publishConfig.fbPageToken || !publishConfig.fbPageId) {
@@ -121,6 +122,7 @@ function App() {
               caption: results.drafts.instagram,
               imageDataUrls,
               llmConfig,
+              forceWebwright: publishConfig.forceWebwright_instagram,
             });
           } else {
             if (!publishConfig.fbPageToken || !publishConfig.igUserId) {
@@ -169,6 +171,7 @@ function App() {
             content: xhsContent,
             imageDataUrls,
             llmConfig,
+            forceWebwright: publishConfig.forceWebwright_xhs,
           });
         }
         setPublishStatus(prev => ({ ...prev, [platform]: { status: 'success', message: '發布成功！' } }));

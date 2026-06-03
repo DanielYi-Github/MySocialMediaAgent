@@ -74,12 +74,14 @@ app.post('/api/llm/proxy', async (req, res) => {
 });
 
 // --- Publish to XHS ---
-// POST /api/xhs/publish → { title, content, images?: [{base64, mime}], imageBase64?, imageMime?, topics?, llmConfig? }
+// POST /api/xhs/publish → { title, content, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig?, forceWebwright? }
 app.post('/api/xhs/publish', async (req, res) => {
-  const { title, content, images, imageBase64, imageMime, topics, llmConfig } = req.body;
+  const { title, content, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
+  if (!content) return res.status(400).json({ error: '內容不可為空' });
+
   try {
     const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
-    const result = await publish({ title, content, images: finalImages, topics, llmConfig });
+    const result = await publish({ title, content, images: finalImages, llmConfig, forceWebwright });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -115,10 +117,10 @@ app.post('/api/fb/login', async (req, res) => {
 
 // POST /api/fb/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig? }
 app.post('/api/fb/publish', async (req, res) => {
-  const { caption, images, imageBase64, imageMime, llmConfig } = req.body;
+  const { caption, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
   try {
     const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
-    const result = await fbPublish({ caption, images: finalImages, llmConfig });
+    const result = await fbPublish({ caption, images: finalImages, llmConfig, forceWebwright });
     res.json(result);
   } catch (err) {
     console.error('fb/publish error:', err.message);
@@ -157,12 +159,12 @@ app.post('/api/ig/login', async (req, res) => {
   }
 });
 
-// POST /api/ig/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig? }
+// POST /api/ig/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig?, forceWebwright? }
 app.post('/api/ig/publish', async (req, res) => {
-  const { caption, images, imageBase64, imageMime, llmConfig } = req.body;
+  const { caption, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
   try {
     const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
-    const result = await igPublish({ caption, images: finalImages, llmConfig });
+    const result = await igPublish({ caption, images: finalImages, llmConfig, forceWebwright });
     res.json(result);
   } catch (err) {
     console.error('ig/publish error:', err.message);

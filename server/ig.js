@@ -93,7 +93,7 @@ export async function openLoginBrowser() {
  * @param {string} opts.caption       - Post caption
  * @param {Array}  [opts.images]      - Array of { base64, mime } (required for IG)
  */
-export async function publish({ caption, images = [], llmConfig = null }) {
+export async function publish({ caption, images = [], llmConfig = null, forceWebwright = false }) {
   if (!images || images.length === 0) {
     throw new Error('Instagram 發文必須包含圖片。');
   }
@@ -140,6 +140,23 @@ export async function publish({ caption, images = [], llmConfig = null }) {
       }
     } catch {}
 
+    // Prepare temp files for upload
+    tmpFiles = images.map((img, idx) => {
+      const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+      const tmpPath = path.join(os.tmpdir(), `ig-${Date.now()}-${idx}.${ext}`);
+      fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
+      return tmpPath;
+    });
+
+    if (forceWebwright) {
+      console.log('IG: forceWebwright is true. Handing over entirely to Webwright...');
+      const goal = `請幫我完成完整的 Instagram 發文流程：\n1. 點擊畫面上左側或下方的建立貼文按鈕（通常是「+」或「建立」）。\n2. 點擊上傳按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。\n3. 接著持續點擊「下一步」按鈕，直到出現填寫文案的畫面。\n4. 尋找文案輸入框，並輸入內容：\n${caption}\n5. 最後點擊「分享」按鈕完成發佈。`;
+      await healAndExecute(page, goal, new Error('強制啟用 Webwright 模式'), llmConfig);
+      await page.waitForTimeout(4000);
+      setTimeout(() => browser.close().catch(() => {}), 5000);
+      return { success: true };
+    }
+
     // Click the Create/New Post button (+)
     const createClicked = await tryClickCreateButton(page);
     if (!createClicked) {
@@ -153,14 +170,6 @@ export async function publish({ caption, images = [], llmConfig = null }) {
     }
 
     await page.waitForTimeout(1500);
-
-    // Prepare temp files for upload
-    tmpFiles = images.map((img, idx) => {
-      const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
-      const tmpPath = path.join(os.tmpdir(), `ig-${Date.now()}-${idx}.${ext}`);
-      fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
-      return tmpPath;
-    });
 
     // Click "Select from computer" or directly trigger file input
     const fileAttached = await attachFile(page, tmpFiles);

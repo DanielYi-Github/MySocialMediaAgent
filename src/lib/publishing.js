@@ -186,7 +186,7 @@ export async function postToInstagramPersonal({ igUserId, igToken, caption, imag
  * Requires server/index.js to be running (`npm run dev:all`).
  * Extracts the first line of content as title (max 20 chars for XHS).
  */
-export async function postToXhs({ title, content, imageDataUrls = [], llmConfig = null }) {
+export async function postToXhs({ title, content, imageDataUrls = [], llmConfig = null, forceWebwright = false }) {
   const images = imageDataUrls.map(url => {
     const [header, base64] = url.split(',');
     return { base64, mime: header.match(/:(.*?);/)[1] };
@@ -194,7 +194,7 @@ export async function postToXhs({ title, content, imageDataUrls = [], llmConfig 
 
   const res = await axios.post(
     'http://localhost:3001/api/xhs/publish',
-    { title, content, images, llmConfig },
+    { title, content, images, llmConfig, forceWebwright },
     { timeout: 120000 }
   );
 
@@ -262,14 +262,14 @@ export async function postToThreads({ threadsUserId, threadsToken, text, imageDa
  * @param {string} opts.caption       - Post caption/text
  * @param {string} [opts.imageDataUrl] - Image as a data URL (data:image/...;base64,...)
  */
-export async function postToFacebookPersonal({ caption, imageDataUrls = [], llmConfig = null }) {
+export async function postToFacebookPersonal({ caption, imageDataUrls = [], llmConfig = null, forceWebwright = false }) {
   const images = imageDataUrls.map(url => {
     const [meta, data] = url.split(',');
     return { base64: data, mime: meta.match(/:(.*?);/)?.[1] ?? 'image/jpeg' };
   });
   const resp = await axios.post(
     'http://localhost:3001/api/fb/publish',
-    { caption, images, llmConfig },
+    { caption, images, llmConfig, forceWebwright },
     { timeout: 120000 },
   );
   return resp.data;
