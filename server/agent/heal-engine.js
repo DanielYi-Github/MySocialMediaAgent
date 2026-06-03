@@ -37,9 +37,16 @@ export async function healAndExecute(page, goal, staticError, llmConfig, opts = 
 
   const { includeScreenshot = true } = opts;
 
-  console.log(`[Self-Healing] Static selector failed: ${staticError.message}`);
-  console.log(`[Self-Healing] Goal: ${goal}`);
-  console.log(`[Self-Healing] Starting AI-assisted recovery (max ${MAX_RETRIES} retries)...`);
+  const BOLD_CYAN = '\x1b[1m\x1b[36m';
+  const BOLD_YELLOW = '\x1b[1m\x1b[33m';
+  const BOLD_GREEN = '\x1b[1m\x1b[32m';
+  const BOLD_RED = '\x1b[1m\x1b[31m';
+  const RESET = '\x1b[0m';
+
+  console.log(`\n${BOLD_CYAN}🤖 [WEBWRIGHT / Self-Healing 引擎已介入]${RESET}`);
+  console.log(`${BOLD_YELLOW}⚠️ 常規選擇器失效: ${staticError.message}${RESET}`);
+  console.log(`${BOLD_CYAN}🎯 當前目標: ${goal}${RESET}`);
+  console.log(`${BOLD_CYAN}🔄 啟動 AI 畫面修復機制 (最大重試 ${MAX_RETRIES} 次)...${RESET}`);
 
   // Step 1: Extract DOM snapshot
   let domSnapshot = [];
@@ -93,7 +100,7 @@ export async function healAndExecute(page, goal, staticError, llmConfig, opts = 
     // Execute the generated code with timeout
     try {
       await _executeWithTimeout(page, lastCode, EXEC_TIMEOUT_MS);
-      console.log(`[Self-Healing] ✅ Execution succeeded on attempt ${attempt}!`);
+      console.log(`\n${BOLD_GREEN}🤖 [WEBWRIGHT] ✅ 任務執行成功 (嘗試次數: ${attempt})！${RESET}\n`);
       return true;
     } catch (execErr) {
       console.warn(`[Self-Healing] Execution failed on attempt ${attempt}:`, execErr.message);

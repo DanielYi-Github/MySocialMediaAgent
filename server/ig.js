@@ -306,16 +306,16 @@ async function tryClickNext(page) {
     '[aria-label="下一步"]',
     '[aria-label*="Next"]',
   ];
-  for (const sel of selectors) {
-    try {
-      const el = page.locator(sel).first();
-      const visible = await el.isVisible({ timeout: 2000 });
-      if (visible) {
-        await el.click();
-        return true;
-      }
-    } catch {}
-  }
+  
+  const combinedSelector = selectors.join(', ');
+  try {
+    const el = page.locator(combinedSelector).first();
+    const visible = await el.isVisible({ timeout: 2000 });
+    if (visible) {
+      await el.click();
+      return true;
+    }
+  } catch {}
   return false;
 }
 
@@ -353,18 +353,18 @@ async function typeCaption(page, caption) {
     '[contenteditable="true"]',
     'textarea',
   ];
-  for (const sel of selectors) {
-    try {
-      const el = await getFirstVisibleLocator(page, sel);
-      if (el) {
-        await el.focus();
-        await el.hover();
-        await page.waitForTimeout(300);
-        await el.type(caption, { delay: 50 });  // Slower typing for better reliability
-        return true;
-      }
-    } catch {}
-  }
+  
+  const combinedSelector = selectors.join(', ');
+  try {
+    const el = await getFirstVisibleLocator(page, combinedSelector, 3000);
+    if (el) {
+      await el.focus();
+      await el.hover();
+      await page.waitForTimeout(300);
+      await el.type(caption, { delay: 50 });  // Slower typing for better reliability
+      return true;
+    }
+  } catch {}
   return false;
 }
 
