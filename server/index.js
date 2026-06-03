@@ -18,7 +18,7 @@ const PORT = 3001;
 
 // Allow requests from the Vite dev server and built preview
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }));
-app.use(express.json({ limit: '30mb' }));
+app.use(express.json({ limit: '100mb' }));
 
 // --- XHS login status ---
 // GET /api/xhs/status → { loggedIn: boolean }
@@ -74,11 +74,12 @@ app.post('/api/llm/proxy', async (req, res) => {
 });
 
 // --- Publish to XHS ---
-// POST /api/xhs/publish → { title, content, imageBase64?, imageMime?, topics? }
+// POST /api/xhs/publish → { title, content, images?: [{base64, mime}], imageBase64?, imageMime?, topics?, llmConfig? }
 app.post('/api/xhs/publish', async (req, res) => {
-  const { title, content, imageBase64, imageMime, topics } = req.body;
+  const { title, content, images, imageBase64, imageMime, topics, llmConfig } = req.body;
   try {
-    const result = await publish({ title, content, imageBase64, imageMime, topics });
+    const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
+    const result = await publish({ title, content, images: finalImages, topics, llmConfig });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -112,11 +113,12 @@ app.post('/api/fb/login', async (req, res) => {
   }
 });
 
-// POST /api/fb/publish → { caption, imageBase64?, imageMime? }
+// POST /api/fb/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig? }
 app.post('/api/fb/publish', async (req, res) => {
-  const { caption, imageBase64, imageMime } = req.body;
+  const { caption, images, imageBase64, imageMime, llmConfig } = req.body;
   try {
-    const result = await fbPublish({ caption, imageBase64, imageMime });
+    const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
+    const result = await fbPublish({ caption, images: finalImages, llmConfig });
     res.json(result);
   } catch (err) {
     console.error('fb/publish error:', err.message);
@@ -155,11 +157,12 @@ app.post('/api/ig/login', async (req, res) => {
   }
 });
 
-// POST /api/ig/publish → { caption, imageBase64, imageMime? }
+// POST /api/ig/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig? }
 app.post('/api/ig/publish', async (req, res) => {
-  const { caption, imageBase64, imageMime } = req.body;
+  const { caption, images, imageBase64, imageMime, llmConfig } = req.body;
   try {
-    const result = await igPublish({ caption, imageBase64, imageMime });
+    const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
+    const result = await igPublish({ caption, images: finalImages, llmConfig });
     res.json(result);
   } catch (err) {
     console.error('ig/publish error:', err.message);

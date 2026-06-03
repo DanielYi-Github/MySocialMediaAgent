@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { healAndExecute } from './agent/heal-engine.js';
 
 // Persistent browser profile saves XHS login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-xhs');
@@ -93,10 +94,9 @@ export async function openLoginBrowser() {
  * @param {object} opts
  * @param {string} opts.title        - Post title (max 20 chars)
  * @param {string} opts.content      - Post body text
- * @param {string} [opts.imageBase64] - Base64-encoded image (JPEG or PNG)
- * @param {string} [opts.imageMime]  - Image MIME type (default: image/jpeg)
+ * @param {Array}  [opts.images]     - Array of { base64, mime }
  */
-export async function publish({ title, content, imageBase64, imageMime = 'image/jpeg' }) {
+export async function publish({ title, content, images = [], llmConfig = null }) {
   const browser = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     viewport: { width: 1280, height: 800 },
@@ -105,7 +105,7 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
     args: ['--no-sandbox', '--deny-permission-prompts'],
   });
   const page = await browser.newPage();
-  let tmpFile = null;
+  let tmpFiles = [];
 
   try {
     console.log('XHS: Navigating to publish page...');
@@ -161,26 +161,26 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
     // Extra settle time for Vue event handler binding
     await page.waitForTimeout(800);
 
-    // Upload image if provided
-    if (imageBase64) {
-      const ext = (imageMime || '').includes('png') ? 'png' : 'jpg';
-      tmpFile = path.join(os.tmpdir(), `xhs-${Date.now()}.${ext}`);
-      fs.writeFileSync(tmpFile, Buffer.from(imageBase64, 'base64'));
+    // Upload images if provided
+    if (images && images.length > 0) {
+      tmpFiles = images.map((img, idx) => {
+        const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+        const tmpPath = path.join(os.tmpdir(), `xhs-${Date.now()}-${idx}.${ext}`);
+        fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
+        return tmpPath;
+      });
 
       // Primary strategy: native fileChooser interception by clicking "上传图片" button.
-      // This is the most reliable method — it goes through the browser's native file dialog
-      // flow, which Vue's @change handler is guaranteed to respond to.
       let uploaded = false;
 
       try {
-        console.log('XHS: Setting up fileChooser interception...');
-        // Must set up promise BEFORE click that triggers it
+        console.log(`XHS: Setting up fileChooser interception for ${tmpFiles.length} files...`);
         const fileChooserPromise = page.waitForEvent('filechooser', { timeout: 8000 });
         await uploadBtn.click();
         const fileChooser = await fileChooserPromise;
-        await fileChooser.setFiles(tmpFile);
+        await fileChooser.setFiles(tmpFiles);
         uploaded = true;
-        console.log('XHS: File injected via native fileChooser interception.');
+        console.log('XHS: Files injected via native fileChooser interception.');
       } catch (e) {
         console.warn('XHS: fileChooser method failed:', e.message, '— trying setInputFiles fallback...');
       }
@@ -190,9 +190,9 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
         try {
           const uploadInput = page.locator('input.upload-input[type="file"]').first();
           await uploadInput.waitFor({ state: 'attached', timeout: 8000 });
-          await uploadInput.setInputFiles(tmpFile);
+          await uploadInput.setInputFiles(tmpFiles);
           uploaded = true;
-          console.log('XHS: File injected via setInputFiles fallback.');
+          console.log('XHS: Files injected via setInputFiles fallback.');
         } catch (e2) {
           console.error('XHS: setInputFiles fallback also failed:', e2.message);
           throw new Error('無法上傳圖片到小紅書，所有上傳方法均已失效。');
@@ -348,7 +348,13 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
     }
 
     if (!clicked) {
-      throw new Error('無法定位或點擊小紅書的「發佈」按鈕。');
+      console.log('XHS: All standard locators failed. Trying Self-Healing Agent...');
+      try {
+        await healAndExecute(page, '點擊小紅書發佈頁面的「发布」按鈕（右側藍色按鈕）', new Error('All static locators failed'), llmConfig);
+        clicked = true;
+      } catch (healErr) {
+        throw new Error(`無法定位或點擊小紅書的「發佈」按鈕。Self-Healing 也失敗：${healErr.message}`);
+      }
     }
 
     // Verify publish success by checking if page navigates away from the publish form,
@@ -392,10 +398,14 @@ export async function publish({ title, content, imageBase64, imageMime = 'image/
       console.error('xhs.publish debug artifacts saved to', debugDir);
       throw new Error(`${err.message} (debug artifacts: ${debugDir})`);
     } finally {
-      if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch {} }
+      if (tmpFiles && tmpFiles.length > 0) {
+        tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+      }
       await browser.close().catch(() => {});
     }
   } finally {
-    if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch {} }
+    if (tmpFiles && tmpFiles.length > 0) {
+      tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+    }
   }
 }

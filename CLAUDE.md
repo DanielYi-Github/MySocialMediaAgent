@@ -266,8 +266,11 @@ rtk kubectl pods        # 取代 kubectl get pods
 
 **原因**：AnySearch 融合多源結果並預先品質評分，返回精煉摘要而非原始 HTML，節省 60–80% Token，且結果相關性更高。匿名即可使用。
 
-### 觸發條件（以下情況必須使用 AnySearch）
+### 觸發條件
 
+**前提**：當本地檔案、當前 Context 或 AI 內建知識無法提供具體、最新的資訊時，才啟動 AnySearch。不要為了「確認一下」而搜尋 AI 已知的內容。
+
+適用情況（以下情況必須使用 AnySearch）：
 - 查詢技術文件、API 規格、套件版本資訊
 - 搜尋程式碼範例、最佳實踐、錯誤訊息解法
 - 驗證外部資訊、確認最新狀態
@@ -341,6 +344,16 @@ cd ~/gstack && ./setup
 /plugin marketplace add anthropics/skills
 ```
 
+### 任務分級執行規則
+
+進入 9-Phase 流程前，先判斷規模，避免小任務套大流程：
+
+| 規模 | 定義 | 執行策略 |
+|---|---|---|
+| **Small** | 單行修改、Bugfix、typo | 僅套用第二章 Karpathy 準則，直接實作驗證，跳過 9-Phase |
+| **Medium** | 新函數、小功能（< 1 天） | 執行 Phase 1, 2, 5, 6, 8 |
+| **Large** | 架構變動、新模組（> 1 天） | 強制執行完整 Phase 0–9 |
+
 ### 9-Phase 開發流程（依序執行，不可跳過）
 
 | Phase | 目標 | superpowers 指令 | gstack 指令 |
@@ -361,7 +374,8 @@ cd ~/gstack && ./setup
 1. **不跳 phase**：每個 phase 有隱含的驗收標準，未達標不進入下一個
 2. **安全前置不可省**：Phase 4 `/cso` 必須在 Phase 5 實作開始**之前**完成
 3. **TDD 是強制的**：Phase 5 的每一行 code 都必須對應一個先存在的失敗測試
-4. **沉澱關閉迴圈**：Phase 9 `writing-skills` + `anthropics/skills` 格式將本次模式封裝為 `SKILL.md`，讓 AI 下個 project 直接使用
+4. **TDD Refactor 範圍限制**：REFACTOR 步驟僅限優化「本次新增或修改」的代碼塊，嚴禁順手重構無關模組（遵守 2.3 精準修改原則）
+5. **沉澱關閉迴圈**：Phase 9 `writing-skills` + `anthropics/skills` 格式將本次模式封裝為 `SKILL.md`，讓 AI 下個 project 直接使用
 
 ---
 

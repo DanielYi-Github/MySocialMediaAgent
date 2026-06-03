@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { healAndExecute } from './agent/heal-engine.js';
 
 // Persistent browser profile saves Instagram login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-ig');
@@ -90,11 +91,10 @@ export async function openLoginBrowser() {
  *
  * @param {object} opts
  * @param {string} opts.caption       - Post caption
- * @param {string} [opts.imageBase64] - Base64-encoded image (required for IG)
- * @param {string} [opts.imageMime]   - Image MIME type (default: image/jpeg)
+ * @param {Array}  [opts.images]      - Array of { base64, mime } (required for IG)
  */
-export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }) {
-  if (!imageBase64) {
+export async function publish({ caption, images = [], llmConfig = null }) {
+  if (!images || images.length === 0) {
     throw new Error('Instagram 發文必須包含圖片。');
   }
 
@@ -104,7 +104,7 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
     args: LAUNCH_ARGS,
   });
   const page = await browser.newPage();
-  let tmpFile = null;
+  let tmpFiles = [];
 
   try {
     await page.goto('https://www.instagram.com', {
@@ -143,18 +143,27 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
     // Click the Create/New Post button (+)
     const createClicked = await tryClickCreateButton(page);
     if (!createClicked) {
-      throw new Error('找不到 Instagram 建立貼文按鈕，頁面可能已更新，請手動發文。');
+      if (llmConfig) {
+        console.log('IG: tryClickCreateButton failed, trying Self-Healing...');
+        await healAndExecute(page, '點擊 Instagram 導覽欄中的「+」建立貼文按鈕', new Error('tryClickCreateButton: all selectors failed'), llmConfig);
+        await page.waitForTimeout(1500);
+      } else {
+        throw new Error('找不到 Instagram 建立貼文按鈕，頁面可能已更新，請手動發文。');
+      }
     }
 
     await page.waitForTimeout(1500);
 
-    // Prepare temp file for upload
-    const ext = (imageMime || '').includes('png') ? 'png' : 'jpg';
-    tmpFile = path.join(os.tmpdir(), `ig-${Date.now()}.${ext}`);
-    fs.writeFileSync(tmpFile, Buffer.from(imageBase64, 'base64'));
+    // Prepare temp files for upload
+    tmpFiles = images.map((img, idx) => {
+      const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+      const tmpPath = path.join(os.tmpdir(), `ig-${Date.now()}-${idx}.${ext}`);
+      fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
+      return tmpPath;
+    });
 
     // Click "Select from computer" or directly trigger file input
-    const fileAttached = await attachFile(page, tmpFile);
+    const fileAttached = await attachFile(page, tmpFiles);
     if (!fileAttached) {
       throw new Error('找不到 Instagram 圖片上傳按鈕，請手動上傳圖片。');
     }
@@ -175,7 +184,12 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
     // Click Share
     const shared = await tryClickShare(page);
     if (!shared) {
-      throw new Error('找不到「分享」按鈕，請手動點擊分享。瀏覽器視窗保持開啟。');
+      if (llmConfig) {
+        console.log('IG: tryClickShare failed, trying Self-Healing...');
+        await healAndExecute(page, '點擊 Instagram 分享對話框中的「分享」按鈕', new Error('tryClickShare: all selectors failed'), llmConfig);
+      } else {
+        throw new Error('找不到「分享」按鈕，請手動點擊分享。瀏覽器視窗保持開啟。');
+      }
     }
 
     await page.waitForTimeout(4000);
@@ -201,11 +215,15 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
       const enhanced = new Error(`${err.message} (debug artifacts: ${debugDir})`);
       throw enhanced;
     } finally {
-      if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch {} }
+      if (tmpFiles && tmpFiles.length > 0) {
+        tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+      }
       await browser.close().catch(() => {});
     }
   } finally {
-    if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch {} }
+    if (tmpFiles && tmpFiles.length > 0) {
+      tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+    }
   }
 }
 
@@ -245,7 +263,7 @@ async function tryClickCreateButton(page) {
   return false;
 }
 
-async function attachFile(page, tmpFile) {
+async function attachFile(page, tmpFiles) {
   // Try clicking "Select from computer" button first
   const selectSelectors = [
     'button:has-text("Select from computer")',
@@ -270,7 +288,7 @@ async function attachFile(page, tmpFile) {
   try {
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.waitFor({ state: 'attached', timeout: 10000 });
-    await fileInput.setInputFiles(tmpFile);
+    await fileInput.setInputFiles(tmpFiles);
     return true;
   } catch {
     return false;

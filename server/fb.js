@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
+import { healAndExecute } from './agent/heal-engine.js';
 
 // Persistent browser profile saves Facebook login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-fb');
@@ -90,17 +91,16 @@ export async function openLoginBrowser() {
  *
  * @param {object} opts
  * @param {string} opts.caption       - Post text/caption
- * @param {string} [opts.imageBase64] - Base64-encoded image
- * @param {string} [opts.imageMime]   - Image MIME type (default: image/jpeg)
+ * @param {Array}  [opts.images]      - Array of { base64, mime }
  */
-export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }) {
+export async function publish({ caption, images = [], llmConfig = null }) {
   const browser = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     viewport: { width: 1280, height: 800 },
     args: LAUNCH_ARGS,
   });
   const page = await browser.newPage();
-  let tmpFile = null;
+  let tmpFiles = [];
 
   try {
     await page.goto('https://www.facebook.com', {
@@ -123,17 +123,26 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
     // Click the "What's on your mind?" composer input to open the post dialog
     const composerClicked = await tryClickComposer(page);
     if (!composerClicked) {
-      throw new Error('找不到 Facebook 發文框，頁面可能已更新，請手動發文。');
+      if (llmConfig) {
+        console.log('FB: tryClickComposer failed, trying Self-Healing...');
+        await healAndExecute(page, '點擊 Facebook 首頁上的「有什麼新鮮事？」發文框', new Error('tryClickComposer: all selectors failed'), llmConfig);
+        await page.waitForTimeout(2000);
+      } else {
+        throw new Error('找不到 Facebook 發文框，頁面可能已更新，請手動發文。');
+      }
     }
 
     // Wait for dialog/modal to appear
     await page.waitForTimeout(2000);
 
-    // Upload image if provided
-    if (imageBase64) {
-      const ext = (imageMime || '').includes('png') ? 'png' : 'jpg';
-      tmpFile = path.join(os.tmpdir(), `fb-${Date.now()}.${ext}`);
-      fs.writeFileSync(tmpFile, Buffer.from(imageBase64, 'base64'));
+    // Upload images if provided
+    if (images && images.length > 0) {
+      tmpFiles = images.map((img, idx) => {
+        const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+        const tmpPath = path.join(os.tmpdir(), `fb-${Date.now()}-${idx}.${ext}`);
+        fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
+        return tmpPath;
+      });
 
       let attached = false;
       try {
@@ -144,23 +153,23 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
           throw new Error('找不到 Facebook 圖片上傳按鈕，請手動新增圖片後發文。');
         }
         const fileChooser = await fileChooserPromise;
-        await fileChooser.setFiles(tmpFile);
+        await fileChooser.setFiles(tmpFiles);
         attached = true;
-        console.log('FB: Successfully uploaded image via filechooser interception.');
+        console.log(`FB: Successfully uploaded ${tmpFiles.length} images via filechooser interception.`);
       } catch (uploadErr) {
         console.warn('FB: File chooser interception failed, trying direct setInputFiles fallback:', uploadErr.message);
       }
 
       if (!attached) {
         await page.waitForTimeout(1500);
-        // Attach file via all hidden inputs (loop to handle multiple file inputs robustly)
+        // Attach files via all hidden inputs (loop to handle multiple file inputs robustly)
         const fileInputs = page.locator('input[type="file"]');
         const count = await fileInputs.count();
         for (let i = 0; i < count; i++) {
           try {
-            await fileInputs.nth(i).setInputFiles(tmpFile);
+            await fileInputs.nth(i).setInputFiles(tmpFiles);
             attached = true;
-            console.log(`FB: Successfully attached image to input file #${i} directly.`);
+            console.log(`FB: Successfully attached images to input file #${i} directly.`);
           } catch (e) {
             console.warn(`FB: Failed attaching to input file #${i}:`, e.message);
           }
@@ -170,7 +179,7 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
       if (!attached) {
         throw new Error('無法在 Facebook 上傳圖片，找不到檔案輸入框。');
       }
-      await page.waitForTimeout(3500); // wait for image to process
+      await page.waitForTimeout(3500); // wait for images to process
     }
 
     // Type the caption in the post composer
@@ -180,7 +189,12 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
     // Click Post button (first step, e.g., "繼續" or "發佈")
     const posted = await tryClickPostButton(page);
     if (!posted) {
-      throw new Error('找不到「發布」按鈕，請手動點擊發布。瀏覽器視窗保持開啟。');
+      if (llmConfig) {
+        console.log('FB: tryClickPostButton failed, trying Self-Healing...');
+        await healAndExecute(page, '點擊 Facebook 發文對話框中的「發佈」按鈕', new Error('tryClickPostButton: all selectors failed'), llmConfig);
+      } else {
+        throw new Error('找不到「發布」按鈕，請手動點擊發布。瀏覽器視窗保持開啟。');
+      }
     }
 
     // Since Facebook might show a second confirmation dialog (e.g. default audience settings, cross-posting, or final "分享")
@@ -224,11 +238,15 @@ export async function publish({ caption, imageBase64, imageMime = 'image/jpeg' }
       const enhanced = new Error(`${err.message} (debug artifacts: ${debugDir})`);
       throw enhanced;
     } finally {
-      if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch {} }
+      if (tmpFiles && tmpFiles.length > 0) {
+        tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+      }
       await browser.close().catch(() => {});
     }
   } finally {
-    if (tmpFile) { try { fs.unlinkSync(tmpFile); } catch {} }
+    if (tmpFiles && tmpFiles.length > 0) {
+      tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
+    }
   }
 }
 

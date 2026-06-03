@@ -68,7 +68,10 @@ function App() {
   const confirmedPlatforms = Object.entries(confirmed).filter(([, v]) => v).map(([k]) => k);
 
   const handlePublish = async () => {
-    const primaryImage = previews[0] || null;
+    const imageDataUrls = previews.slice(0, 10);
+    const llmConfig = (() => {
+      try { return JSON.parse(localStorage.getItem('llm_config') || 'null'); } catch { return null; }
+    })();
 
     setIsPublishing(true);
 
@@ -87,7 +90,8 @@ function App() {
           if (fbType === 'personal') {
             await postToFacebookPersonal({
               caption: results.drafts.facebook,
-              imageDataUrl: primaryImage,
+              imageDataUrls,
+              llmConfig,
             });
           } else {
             if (!publishConfig.fbPageToken || !publishConfig.fbPageId) {
@@ -97,7 +101,7 @@ function App() {
               pageId: publishConfig.fbPageId,
               pageToken: publishConfig.fbPageToken,
               message: results.drafts.facebook,
-              imageDataUrl: primaryImage,
+              imageDataUrls,
               imgbbKey: publishConfig.imgbbKey,
             });
           }
@@ -106,7 +110,8 @@ function App() {
           if (igType === 'personal') {
             await postToInstagramBrowser({
               caption: results.drafts.instagram,
-              imageDataUrl: primaryImage,
+              imageDataUrls,
+              llmConfig,
             });
           } else {
             if (!publishConfig.fbPageToken || !publishConfig.igUserId) {
@@ -128,7 +133,7 @@ function App() {
               igUserId: publishConfig.igUserId,
               pageToken: publishConfig.fbPageToken,
               caption: results.drafts.instagram,
-              imageDataUrl: primaryImage,
+              imageDataUrls,
               imgbbKey: publishConfig.imgbbKey,
             });
           }
@@ -144,7 +149,7 @@ function App() {
             threadsUserId: userId,
             threadsToken: token,
             text: results.drafts.threads,
-            imageDataUrl: primaryImage,
+            imageDataUrls,
             imgbbKey: publishConfig.imgbbKey,
           });
         } else if (platform === 'xhs') {
@@ -155,7 +160,8 @@ function App() {
           await postToXhs({
             title: xhsTitle,
             content: xhsContent,
-            imageDataUrl: primaryImage,
+            imageDataUrls,
+            llmConfig,
           });
         }
         setPublishStatus(prev => ({ ...prev, [platform]: { status: 'success', message: '發布成功！' } }));
