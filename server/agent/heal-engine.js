@@ -99,7 +99,8 @@ export async function healAndExecute(page, goal, staticError, llmConfig, opts = 
 
     // Execute the generated code with timeout
     try {
-      await _executeWithTimeout(page, lastCode, EXEC_TIMEOUT_MS);
+      const timeoutMs = opts.timeoutMs || EXEC_TIMEOUT_MS;
+      await _executeWithTimeout(page, lastCode, timeoutMs);
       console.log(`\n${BOLD_GREEN}🤖 [WEBWRIGHT] ✅ 任務執行成功 (嘗試次數: ${attempt})！${RESET}\n`);
       return true;
     } catch (execErr) {

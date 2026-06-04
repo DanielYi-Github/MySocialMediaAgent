@@ -16,7 +16,7 @@ const MAX_OUTER_HTML = 200;
  * @returns {Promise<Array<{tagName,text,ariaLabel,role,outerHTML}>>}
  */
 export async function extractInteractiveElements(page) {
-  return page.evaluate((_max, _maxHtml) => {
+  return page.evaluate(({ _max, _maxHtml }) => {
     const selector = [
       'button',
       'input',
@@ -46,7 +46,7 @@ export async function extractInteractiveElements(page) {
         role: el.getAttribute('role'),
         outerHTML: el.outerHTML.slice(0, _maxHtml),
       }));
-  }, MAX_ELEMENTS, MAX_OUTER_HTML);
+  }, { _max: MAX_ELEMENTS, _maxHtml: MAX_OUTER_HTML });
 }
 
 /**

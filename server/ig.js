@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { healAndExecute } from './agent/heal-engine.js';
+import { runAgentLoop } from './agent/agent-loop.js';
 
 // Persistent browser profile saves Instagram login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-ig');
@@ -149,12 +150,12 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
     });
 
     if (forceWebwright) {
-      console.log('IG: forceWebwright is true. Handing over entirely to Webwright...');
-      const goal = `請幫我完成完整的 Instagram 發文流程：\n1. 點擊畫面上左側或下方的建立貼文按鈕（通常是「+」或「建立」）。\n2. 點擊上傳按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。\n3. 接著持續點擊「下一步」按鈕，直到出現填寫文案的畫面。\n4. 尋找文案輸入框，並輸入內容：\n${caption}\n5. 最後點擊「分享」按鈕完成發佈。`;
-      await healAndExecute(page, goal, new Error('強制啟用 Webwright 模式'), llmConfig);
+      console.log('IG: forceWebwright is true. Handing over to Agent Loop...');
+      const goal = `請幫我完成完整的 Instagram 發文流程：\n1. 點擊畫面上左側或下方的建立貼文按鈕（通常是「+」或「建立」）。\n2. 點擊上傳按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。\n3. 接著持續點擊「下一步」按鈕，直到出現填寫文案的畫面。\n4. 尋找文案輸入框，並輸入內容：\n${caption}\n5. 最後點擊「分享」按鈕完成發佈。\n\n成功判斷：看到「已分享」提示或頁面跳轉。`;
+      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, stepTimeout: 15000 });
       await page.waitForTimeout(4000);
       setTimeout(() => browser.close().catch(() => {}), 5000);
-      return { success: true };
+      return result;
     }
 
     // Click the Create/New Post button (+)

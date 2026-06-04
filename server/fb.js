@@ -3,6 +3,7 @@ import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import { healAndExecute } from './agent/heal-engine.js';
+import { runAgentLoop } from './agent/agent-loop.js';
 
 // Persistent browser profile saves Facebook login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-fb');
@@ -130,15 +131,15 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
     }
 
     if (forceWebwright) {
-      console.log('FB: forceWebwright is true. Handing over entirely to Webwright...');
+      console.log('FB: forceWebwright is true. Handing over to Agent Loop...');
       const uploadInstruction = tmpFiles.length > 0 
         ? `\n2. 點擊上傳圖片按鈕（綠色相片圖示），或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。` 
         : '';
-      const goal = `請幫我完成完整的 Facebook 發文流程：\n1. 點擊首頁上的「有什麼新鮮事？」發文框。${uploadInstruction}\n3. 尋找文案輸入框，並輸入內容：\n${caption}\n4. 最後點擊「發佈」按鈕完成發文。`;
-      await healAndExecute(page, goal, new Error('強制啟用 Webwright 模式'), llmConfig);
+      const goal = `請幫我完成完整的 Facebook 發文流程：\n1. 點擊首頁上的「有什麼新鮮事？」發文框。${uploadInstruction}\n3. 尋找文案輸入框，並輸入內容：\n${caption}\n4. 最後點擊「發佈」按鈕完成發文。\n\n成功判斷：看到發佈成功提示或發文對話框關閉。`;
+      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, stepTimeout: 15000 });
       await page.waitForTimeout(4000);
       setTimeout(() => browser.close().catch(() => {}), 5000);
-      return { success: true };
+      return result;
     }
 
     // Click the "What's on your mind?" composer input to open the post dialog
