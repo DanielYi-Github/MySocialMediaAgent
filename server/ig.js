@@ -151,10 +151,10 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
 
     if (forceWebwright) {
       console.log('IG: forceWebwright is true. Handing over to Agent Loop...');
-      const goal = `請幫我完成完整的 Instagram 發文流程：\n1. 點擊畫面上左側或下方的建立貼文按鈕（通常是「+」或「建立」）。\n2. 點擊上傳按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。\n3. 接著持續點擊「下一步」按鈕，直到出現填寫文案的畫面。\n4. 尋找文案輸入框，並輸入內容：\n${caption}\n5. 最後點擊「分享」按鈕完成發佈。\n\n成功判斷：看到「已分享」提示或頁面跳轉。`;
+      const goal = `請幫我完成完整的 Instagram 發文流程：\n1. 點擊畫面上左側或下方的建立貼文按鈕（通常是「+」或「建立」）。\n2. 點擊上傳按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。\n3. 接著持續點擊「下一步」按鈕，直到出現填寫文案的畫面。\n4. 尋找文案輸入框，並輸入內容：\n${caption}\n5. 最後點擊「分享」按鈕完成發佈。\n\n成功判斷：看到「已分享」提示、頁面跳轉，或建立貼文的對話框 (dialog) 關閉消失。`;
       const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, stepTimeout: 15000 });
-      await page.waitForTimeout(4000);
-      setTimeout(() => browser.close().catch(() => {}), 5000);
+      await verifyInstagramPublishSuccess(page);
+      setTimeout(() => browser.close().catch(() => {}), 2000);
       return result;
     }
 
@@ -202,10 +202,10 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
       }
     }
 
-    await page.waitForTimeout(4000);
-    setTimeout(() => browser.close().catch(() => {}), 5000);
+    const success = await verifyInstagramPublishSuccess(page);
+    setTimeout(() => browser.close().catch(() => {}), 2000);
 
-    return { success: true };
+    return { success };
   } catch (err) {
     // Save debug artifacts to help diagnose UI selector failures
     try {
@@ -263,7 +263,7 @@ async function tryClickCreateButton(page) {
   for (const sel of selectors) {
     try {
       const el = page.locator(sel).first();
-      const visible = await el.isVisible({ timeout: 3000 });
+      const visible = await el.isVisible();
       if (visible) {
         await el.click();
         return true;
@@ -306,26 +306,38 @@ async function attachFile(page, tmpFiles) {
 }
 
 async function tryClickNext(page) {
-  // "Next" button in IG's multi-step post dialog
-  const selectors = [
-    'button:has-text("Next")',
-    'button:has-text("下一步")',  // Taiwan / Chinese locale
-    'button:has-text("繼續")',
-    '[role="button"]:has-text("Next")',
-    '[role="button"]:has-text("下一步")',
-    '[aria-label="下一步"]',
-    '[aria-label*="Next"]',
-  ];
-  
-  const combinedSelector = selectors.join(', ');
-  try {
-    const el = page.locator(combinedSelector).first();
-    const visible = await el.isVisible({ timeout: 2000 });
-    if (visible) {
-      await el.click();
-      return true;
+  const exactTexts = ['下一步', 'Next', '繼續', 'Continue'];
+
+  for (const text of exactTexts) {
+    try {
+      const candidates = [
+        page.locator('div[role="dialog"] button').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+        page.locator('div[role="dialog"] [role="button"]').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+        page.locator('div[role="dialog"] div').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+        page.locator('div[role="dialog"] span').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+      ];
+
+      for (const locator of candidates) {
+        const count = await locator.count();
+        for (let i = 0; i < count; i++) {
+          const el = locator.nth(i);
+          if (await el.isVisible()) {
+            const isDisabled = await el.evaluate(node => node.disabled || node.getAttribute('aria-disabled') === 'true');
+            if (!isDisabled) {
+              console.log(`IG: Found precise next button node with text "${text}". Clicking...`);
+              await el.hover();
+              await page.waitForTimeout(200);
+              await el.click();
+              return true;
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn(`IG: Error checking next button candidates for text "${text}":`, err.message);
     }
-  } catch {}
+  }
+
   return false;
 }
 
@@ -379,39 +391,53 @@ async function typeCaption(page, caption) {
 }
 
 async function tryClickShare(page) {
-  const selectors = [
-    // 優先使用 Playwright 推薦的 role 定位器，並相容多國語言（英文、繁中、簡中）
-    'role=button[name="分享"]',
-    'role=button[name="Share"]',
-    'role=button[name="發布"]',
-    'role=button[name="發佈"]',
-    'role=button[name="Publish"]',
-    // 傳統 aria-label
-    'button[aria-label="分享"]',
-    'div[role="button"]:has(svg[aria-label="分享"])',
-    'div[role="button"]:has(svg[aria-label*="分享"])',
-    '[aria-label="分享"]',
-    '[aria-label*="Share"]',
-    // Text-based matching
-    'button:has-text("Share")',
-    'button:has-text("分享")',
-    'button:has-text("發布")',
-    'button:has-text("發佈")',
-    '[role="button"]:has-text("Share")',
-    '[role="button"]:has-text("分享")',
-    '[role="button"]:has-text("發布")',
-    '[role="button"]:has-text("發佈")',
-  ];
-  for (const sel of selectors) {
+  const exactTexts = ['分享', 'Share', '發布', '發佈', 'Publish'];
+
+  for (const text of exactTexts) {
     try {
-      const el = await getFirstVisibleLocator(page, sel, 4000);
-      if (el) {
-        await el.hover();  // Move mouse over button first
-        await page.waitForTimeout(200);
-        await el.click();
-        return true;
+      const candidates = [
+        page.locator('div[role="dialog"] button').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+        page.locator('div[role="dialog"] [role="button"]').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+        page.locator('div[role="dialog"] div').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+        page.locator('div[role="dialog"] span').filter({ hasText: new RegExp(`^${text}$`, 'i') }),
+      ];
+
+      for (const locator of candidates) {
+        const count = await locator.count();
+        for (let i = 0; i < count; i++) {
+          const el = locator.nth(i);
+          if (await el.isVisible()) {
+            const isDisabled = await el.evaluate(node => node.disabled || node.getAttribute('aria-disabled') === 'true');
+            if (!isDisabled) {
+              console.log(`IG: Found precise share button node with text "${text}". Clicking...`);
+              await el.hover();
+              await page.waitForTimeout(200);
+              await el.click();
+              return true;
+            }
+          }
+        }
       }
-    } catch {}
+    } catch (err) {
+      console.warn(`IG: Error checking share button candidates for text "${text}":`, err.message);
+    }
   }
+
   return false;
+}
+
+/**
+ * 輪詢等待 Instagram 建立貼文對話框關閉（表示上傳完成並發佈成功）。
+ */
+async function verifyInstagramPublishSuccess(page) {
+  console.log('IG: Waiting for upload dialog to close (confirmation of publish success)...');
+  try {
+    // 等待 dialog 消失 (state: 'hidden')，最多等 20 秒
+    await page.locator('div[role="dialog"]').waitFor({ state: 'hidden', timeout: 20000 });
+    console.log('IG: Upload dialog closed! Post published successfully.');
+    return true;
+  } catch (e) {
+    console.warn('IG: Dialog did not close within 20s. Post might still be uploading or upload failed.');
+    return false;
+  }
 }
