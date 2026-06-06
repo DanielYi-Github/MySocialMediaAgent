@@ -283,7 +283,7 @@ export async function postToFacebookPersonal({ caption, imageDataUrls = [], llmC
  * @param {string} opts.caption        - Post caption
  * @param {string} opts.imageDataUrl   - Image as a data URL (required for Instagram)
  */
-export async function postToInstagramBrowser({ caption, imageDataUrls = [], llmConfig = null }) {
+export async function postToInstagramBrowser({ caption, imageDataUrls = [], llmConfig = null, forceWebwright = false }) {
   if (!imageDataUrls || imageDataUrls.length === 0) throw new Error('Instagram 發文必須包含圖片。');
   const images = imageDataUrls.map(url => {
     const [meta, data] = url.split(',');
@@ -291,7 +291,7 @@ export async function postToInstagramBrowser({ caption, imageDataUrls = [], llmC
   });
   const resp = await axios.post(
     'http://localhost:3001/api/ig/publish',
-    { caption, images, llmConfig },
+    { caption, images, llmConfig, forceWebwright },
     { timeout: 120000 },
   );
   return resp.data;

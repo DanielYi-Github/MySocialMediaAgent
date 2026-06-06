@@ -15,16 +15,9 @@ export function validateProxyTarget({ url, method = 'POST' }) {
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
-  if (isLocalModelUrl(parsedUrl)) {
-    return { url: parsedUrl.toString(), method: normalizedMethod };
-  }
 
-  if (parsedUrl.protocol !== 'https:') {
-    throw createProxyValidationError('Proxy target must use HTTPS');
-  }
-
-  if (isPrivateNetworkHost(hostname)) {
-    throw createProxyValidationError('Proxy target cannot be a private network host');
+  if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+    throw createProxyValidationError('Proxy target must use HTTP or HTTPS');
   }
 
   return { url: parsedUrl.toString(), method: normalizedMethod };
@@ -62,8 +55,7 @@ function isLocalModelUrl(parsedUrl) {
   return (
     parsedUrl.protocol === 'http:' &&
     LOCAL_MODEL_HOSTS.has(parsedUrl.hostname.toLowerCase()) &&
-    Boolean(parsedUrl.port) &&
-    parsedUrl.pathname.startsWith('/v1/')
+    Boolean(parsedUrl.port)
   );
 }
 

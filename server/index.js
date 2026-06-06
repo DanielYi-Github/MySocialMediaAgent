@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import axios from 'axios';
+import https from 'https';
+import http from 'http';
 import { checkLoginStatus, openLoginBrowser, publish } from './xhs.js';
 import {
   checkLoginStatus as fbCheckLogin,
@@ -56,12 +58,34 @@ app.post('/api/llm/proxy', async (req, res) => {
   if (normalizedMethod === 'POST' && !data) return res.status(400).json({ error: 'Missing data' });
   try {
     const target = validateProxyTarget({ url, method: normalizedMethod });
+    const axiosConfig = {
+      headers,
+      httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+      httpAgent: new http.Agent({ keepAlive: true })
+    };
+
+    const doRequest = async (targetUrl) => {
+      if (target.method === 'GET') {
+        return axios.get(targetUrl, { ...axiosConfig, params: data });
+      }
+      return axios.post(targetUrl, data, axiosConfig);
+    };
+
     let response;
-    if (target.method === 'GET') {
-      response = await axios.get(target.url, { headers, params: data });
-    } else {
-      response = await axios.post(target.url, data, { headers });
+    try {
+      response = await doRequest(target.url);
+    } catch (firstErr) {
+      // EPROTO "wrong version number" = server is HTTP but we used https://
+      // Auto-retry with http:// equivalent
+      const isProtocolMismatch = firstErr.code === 'EPROTO' && firstErr.message.includes('wrong version number');
+      if (isProtocolMismatch && target.url.startsWith('https://')) {
+        const httpUrl = target.url.replace(/^https:\/\//, 'http://');
+        response = await doRequest(httpUrl);
+      } else {
+        throw firstErr;
+      }
     }
+
     res.json(response.data);
   } catch (err) {
     const status = err.response?.status || err.statusCode || 502;

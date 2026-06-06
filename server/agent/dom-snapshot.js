@@ -7,6 +7,7 @@
 
 const MAX_ELEMENTS = 100;
 const MAX_OUTER_HTML = 200;
+const MAX_DIALOG_HTML = 4000;
 
 /**
  * Extract interactive elements from the current page state.
@@ -47,6 +48,65 @@ export async function extractInteractiveElements(page) {
         outerHTML: el.outerHTML.slice(0, _maxHtml),
       }));
   }, { _max: MAX_ELEMENTS, _maxHtml: MAX_OUTER_HTML });
+}
+
+/**
+ * Extract the innerHTML of the currently visible dialog/modal.
+ * Strips style attributes to reduce noise, then truncates.
+ *
+ * @param {import('playwright').Page} page
+ * @param {number} [maxChars]
+ * @returns {Promise<string|null>}
+ */
+export async function extractFocusedDialogHtml(page, maxChars = MAX_DIALOG_HTML) {
+  try {
+    return await page.evaluate(({ _max }) => {
+      const candidates = [
+        '[role="dialog"][aria-modal="true"]',
+        '[role="dialog"]',
+        '[aria-modal="true"]',
+        '[role="alertdialog"]',
+      ];
+
+      let dialog = null;
+      for (const sel of candidates) {
+        const el = document.querySelector(sel);
+        if (el && el.offsetParent !== null) {
+          dialog = el;
+          break;
+        }
+      }
+      if (!dialog) return null;
+
+      // Clone so we can strip noise without mutating the live DOM
+      const clone = dialog.cloneNode(true);
+
+      // Remove script/style tags and strip style/class attributes
+      clone.querySelectorAll('script, style').forEach(el => el.remove());
+      clone.querySelectorAll('[style]').forEach(el => el.removeAttribute('style'));
+      clone.querySelectorAll('[class]').forEach(el => el.removeAttribute('class'));
+
+      // Keep only a meaningful subset of attributes
+      const KEEP_ATTRS = new Set([
+        'role', 'aria-label', 'aria-placeholder', 'aria-labelledby',
+        'aria-modal', 'aria-expanded', 'aria-haspopup', 'aria-autocomplete',
+        'contenteditable', 'type', 'name', 'placeholder', 'value',
+        'data-lexical-editor', 'tabindex', 'href', 'disabled',
+      ]);
+      clone.querySelectorAll('*').forEach(el => {
+        for (const attr of [...el.attributes]) {
+          if (!KEEP_ATTRS.has(attr.name) && !attr.name.startsWith('data-')) {
+            el.removeAttribute(attr.name);
+          }
+        }
+      });
+
+      const html = clone.outerHTML;
+      return html.length > _max ? html.slice(0, _max) + '\n<!-- truncated -->' : html;
+    }, { _max: maxChars });
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -6,8 +6,27 @@
  */
 
 import axios from 'axios';
+import https from 'https';
+import http from 'http';
 import { HEAL_SYSTEM_PROMPT } from './prompts.js';
 import { AGENT_SYSTEM_PROMPT } from './agent-prompts.js';
+
+const AXIOS_OPTS = {
+  httpsAgent: new https.Agent({ rejectUnauthorized: false }),
+  httpAgent: new http.Agent({ keepAlive: true }),
+};
+
+// When server is HTTP-only but URL has https://, auto-retry with http://
+async function axiosPostWithFallback(url, payload, config) {
+  try {
+    return await axios.post(url, payload, { ...AXIOS_OPTS, ...config });
+  } catch (err) {
+    if (err.code === 'EPROTO' && err.message.includes('wrong version number') && url.startsWith('https://')) {
+      return axios.post(url.replace(/^https:\/\//, 'http://'), payload, { ...AXIOS_OPTS, ...config });
+    }
+    throw err;
+  }
+}
 
 /**
  * Call the LLM to generate Playwright code for the given prompt.
@@ -23,7 +42,7 @@ export async function callHealLLM({ llmConfig, userPrompt, screenshotBase64 }) {
   const cleanBase = baseUrl.replace(/\/+$/, '');
 
   const executeCall = async (opts) => {
-    const isGemini = cleanBase.includes('generativelanguage.googleapis.com') || model.toLowerCase().includes('gemini');
+    const isGemini = cleanBase.includes('generativelanguage.googleapis.com');
     if (isGemini && protocol !== 'anthropic') {
       return _callGeminiNative({
         cleanBase,
@@ -67,14 +86,16 @@ export async function callHealLLM({ llmConfig, userPrompt, screenshotBase64 }) {
  * @param {object} opts.llmConfig        - { protocol, baseUrl, apiKey, model }
  * @param {string} opts.userPrompt       - The step prompt
  * @param {string} [opts.screenshotBase64] - Current page screenshot
+ * @param {string} [opts.systemPrompt]   - Optional custom system prompt (default: AGENT_SYSTEM_PROMPT)
  * @returns {Promise<{thought: string, action: string, code?: string, reason?: string}>}
  */
-export async function callAgentLLM({ llmConfig, userPrompt, screenshotBase64 }) {
+export async function callAgentLLM({ llmConfig, userPrompt, screenshotBase64, systemPrompt }) {
   const { protocol, baseUrl, apiKey, model } = llmConfig;
   const cleanBase = baseUrl.replace(/\/+$/, '');
+  const finalSystemPrompt = systemPrompt || AGENT_SYSTEM_PROMPT;
 
   const executeCall = async (opts) => {
-    const isGemini = cleanBase.includes('generativelanguage.googleapis.com') || model.toLowerCase().includes('gemini');
+    const isGemini = cleanBase.includes('generativelanguage.googleapis.com');
     if (isGemini && protocol !== 'anthropic') {
       return _callGeminiNative({
         cleanBase,
@@ -82,7 +103,7 @@ export async function callAgentLLM({ llmConfig, userPrompt, screenshotBase64 }) 
         model,
         userPrompt: opts.userPrompt,
         screenshotBase64: opts.screenshotBase64,
-        systemPrompt: AGENT_SYSTEM_PROMPT,
+        systemPrompt: finalSystemPrompt,
         maxTokens: 2000
       });
     }
@@ -94,7 +115,7 @@ export async function callAgentLLM({ llmConfig, userPrompt, screenshotBase64 }) 
         model,
         userPrompt: opts.userPrompt,
         screenshotBase64: opts.screenshotBase64,
-        systemPrompt: AGENT_SYSTEM_PROMPT,
+        systemPrompt: finalSystemPrompt,
         maxTokens: 2000
       });
     }
@@ -105,7 +126,7 @@ export async function callAgentLLM({ llmConfig, userPrompt, screenshotBase64 }) 
       model,
       userPrompt: opts.userPrompt,
       screenshotBase64: opts.screenshotBase64,
-      systemPrompt: AGENT_SYSTEM_PROMPT,
+      systemPrompt: finalSystemPrompt,
       maxTokens: 2000
     });
   };
@@ -113,7 +134,7 @@ export async function callAgentLLM({ llmConfig, userPrompt, screenshotBase64 }) 
   const rawText = await _callLLMWithVisionFallback(executeCall, { userPrompt, screenshotBase64 });
 
   // Parse JSON from the response (may be wrapped in markdown fences)
-  return _parseAgentResponse(rawText);
+  return parseAgentResponse(rawText);
 }
 
 /**
@@ -171,13 +192,16 @@ async function _callGeminiNative({ cleanBase, apiKey, model, userPrompt, screens
   }
 
   try {
-    const res = await axios.post(url, payload, { headers, timeout: 60000 });
+    const res = await axiosPostWithFallback(url, payload, { headers, timeout: 60000 });
     return res.data?.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
   } catch (err) {
     if (err.response) {
       console.error(`[LLM Client] HTTP ${err.response.status} from Gemini Native API`);
       console.error(`[LLM Client] Response:`, JSON.stringify(err.response.data).slice(0, 500));
       console.error(`[LLM Client] Model: ${model}, Screenshot attached: ${!!screenshotBase64}`);
+      if (err.response.status === 404) {
+        throw new Error(`Gemini 模型 "${model}" 不存在（HTTP 404）。請確認模型名稱，例如 gemini-2.0-flash 或 gemini-2.5-flash。`);
+      }
     }
     throw err;
   }
@@ -206,7 +230,7 @@ async function _callOpenAICompatible({ cleanBase, apiKey, model, userPrompt, scr
   };
 
   try {
-    const res = await axios.post(
+    const res = await axiosPostWithFallback(
       `${cleanBase}/chat/completions`,
       payload,
       { headers, timeout: 60000 },
@@ -246,7 +270,7 @@ async function _callAnthropicProtocol({ cleanBase, apiKey, model, userPrompt, sc
   };
 
   try {
-    const res = await axios.post(
+    const res = await axiosPostWithFallback(
       `${cleanBase}/messages`,
       payload,
       { headers, timeout: 60000 },
@@ -270,21 +294,19 @@ async function _callAnthropicProtocol({ cleanBase, apiKey, model, userPrompt, sc
  * @param {string} raw
  * @returns {{thought: string, action: string, code?: string, reason?: string}}
  */
-function _parseAgentResponse(raw) {
+export function parseAgentResponse(raw) {
   if (!raw) {
     return { thought: 'LLM returned empty response', action: 'fail', reason: 'Empty LLM response' };
   }
 
-  // Strip markdown JSON fences if present
-  let cleaned = raw.trim();
-  const jsonMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (jsonMatch) cleaned = jsonMatch[1].trim();
+  const cleaned = stripOuterCodeFence(raw.trim());
+  const jsonCandidate = extractBalancedJsonObject(cleaned);
 
   try {
-    const parsed = JSON.parse(cleaned);
+    const parsed = JSON.parse(jsonCandidate || cleaned);
     // Validate required fields
-    if (!parsed.action || !['code', 'done', 'fail'].includes(parsed.action)) {
-      return { thought: parsed.thought || 'Invalid action', action: 'fail', reason: `Invalid action: ${parsed.action}` };
+    if (!parsed.action) {
+      return { thought: parsed.thought || 'Missing action', action: 'fail', reason: 'Missing action field' };
     }
     if (parsed.action === 'code' && !parsed.code) {
       return { thought: parsed.thought || '', action: 'fail', reason: 'LLM returned action=code but no code field' };
@@ -298,11 +320,65 @@ function _parseAgentResponse(raw) {
       return { thought: 'Fallback: extracted code from non-JSON response', action: 'code', code: codeMatch[1].trim() };
     }
     // Last resort: treat entire response as code if it looks like Playwright
-    if (raw.includes('page.') && raw.includes('await')) {
-      return { thought: 'Fallback: treating raw response as code', action: 'code', code: raw.trim() };
+    if (looksLikeStandalonePlaywrightCode(cleaned)) {
+      return { thought: 'Fallback: treating raw response as code', action: 'code', code: cleaned };
     }
     return { thought: 'Failed to parse LLM response', action: 'fail', reason: `Unparseable response: ${raw.slice(0, 200)}` };
   }
+}
+
+function stripOuterCodeFence(raw) {
+  const match = raw.match(/^```[^\n]*\n([\s\S]*?)\n?```$/);
+  return match ? match[1].trim() : raw;
+}
+
+function extractBalancedJsonObject(raw) {
+  const start = raw.indexOf('{');
+  if (start === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < raw.length; i++) {
+    const char = raw[i];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escaped = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === '{') depth++;
+    if (char === '}') {
+      depth--;
+      if (depth === 0) {
+        return raw.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
+}
+
+function looksLikeStandalonePlaywrightCode(raw) {
+  return (
+    !raw.includes('"action"') &&
+    !raw.trim().startsWith('{') &&
+    raw.includes('page.') &&
+    raw.includes('await')
+  );
 }
 
 /**
@@ -334,5 +410,4 @@ function _cleanBase64Image(screenshotBase64) {
   }
   return str.replace(/^data:image\/[a-z]+;base64,/, '').replace(/\s/g, '');
 }
-
 

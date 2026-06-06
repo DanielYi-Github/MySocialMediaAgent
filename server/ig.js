@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs';
 import { healAndExecute } from './agent/heal-engine.js';
 import { runAgentLoop } from './agent/agent-loop.js';
+import { buildInstagramPublishGoal } from './agent/publish-goals.js';
 
 // Persistent browser profile saves Instagram login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-ig');
@@ -151,8 +152,8 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
 
     if (forceWebwright) {
       console.log('IG: forceWebwright is true. Handing over to Agent Loop...');
-      const goal = `請幫我完成完整的 Instagram 發文流程：\n1. 點擊畫面上左側或下方的建立貼文按鈕（通常是「+」或「建立」）。\n2. 點擊上傳按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。\n3. 接著持續點擊「下一步」按鈕，直到出現填寫文案的畫面。\n4. 尋找文案輸入框，並輸入內容：\n${caption}\n5. 最後點擊「分享」按鈕完成發佈。\n\n成功判斷：看到「已分享」提示、頁面跳轉，或建立貼文的對話框 (dialog) 關閉消失。`;
-      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, stepTimeout: 15000 });
+      const goal = buildInstagramPublishGoal({ caption, tmpFiles });
+      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, maxRounds: 3, stepTimeout: 15000, uploadFiles: tmpFiles });
       await verifyInstagramPublishSuccess(page);
       setTimeout(() => browser.close().catch(() => {}), 2000);
       return result;

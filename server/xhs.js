@@ -4,6 +4,7 @@ import os from 'os';
 import fs from 'fs';
 import { healAndExecute } from './agent/heal-engine.js';
 import { runAgentLoop } from './agent/agent-loop.js';
+import { buildXhsPublishGoal } from './agent/publish-goals.js';
 
 // Persistent browser profile saves XHS login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-xhs');
@@ -173,11 +174,8 @@ export async function publish({ title, content, images = [], llmConfig = null, f
 
     if (forceWebwright) {
       console.log('XHS: forceWebwright is true. Handing over to Agent Loop...');
-      const uploadInstruction = tmpFiles.length > 0 
-        ? `\n2. 點擊上傳圖片按鈕，或當出現選擇檔案時，請透過找出對應 input[type="file"]，並使用 .setInputFiles([${tmpFiles.map(t => `'${t}'`).join(', ')}]) 上傳圖片。` 
-        : '';
-      const goal = `請幫我完成完整的小紅書發文流程：\n1. 尋找發佈貼文或圖文上傳的區域。${uploadInstruction}\n3. 尋找標題輸入框，輸入：\n${title}\n4. 尋找內文輸入框，並輸入內容：\n${content}\n5. 最後點擊「发布」按鈕（通常在右側）完成發文。\n\n成功判斷：URL 跳轉到包含 "success" 的頁面，或看到發佈成功的提示。`;
-      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, stepTimeout: 15000 });
+      const goal = buildXhsPublishGoal({ title, content, tmpFiles });
+      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, maxRounds: 3, stepTimeout: 15000, uploadFiles: tmpFiles });
       await page.waitForTimeout(4000);
       setTimeout(() => browser.close().catch(() => {}), 5000);
       return result;

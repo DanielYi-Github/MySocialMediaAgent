@@ -10,6 +10,10 @@
     "setup:xhs": "npx playwright install chromium",
     "test:proxy": "node test/proxy-security.test.js",
     "test:providers": "node test/providers.test.js",
+    "test:agent-loop": "node test/agent/agent-loop.test.js",
+    "test:agent-llm": "node test/agent/llm-client.test.js",
+    "test:agent-timeout": "node test/agent/agent-timeout.test.js",
+    "test:publish-goals": "node test/agent/publish-goals.test.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"
