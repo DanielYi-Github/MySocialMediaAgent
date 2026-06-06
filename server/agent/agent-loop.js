@@ -65,7 +65,10 @@ export async function runAgentLoop(page, goal, llmConfig, opts = {}) {
   let firstLLMError = null;
   const MAX_CONSECUTIVE_LLM_FAILURES = 3;
 
-  if (uploadFiles.length > 0 && typeof page.on === 'function') {
+  // Register a filechooser auto-fill listener ONLY in raw-code mode.
+  // In macro mode, ATTACH_FILES macro owns filechooser handling via waitForEvent — registering
+  // page.on here as well causes setFiles() to fire twice on the same chooser, doubling uploads.
+  if (!isMacroMode && uploadFiles.length > 0 && typeof page.on === 'function') {
     page.on('filechooser', async fileChooser => {
       try {
         await fileChooser.setFiles(uploadFiles);
