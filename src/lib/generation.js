@@ -1,3 +1,5 @@
+import { validateProviderConfig } from './providers.js';
+
 const SYSTEM_PROMPT = `你是一個擁有十年社群媒體操盤經驗的品牌文案策略師。
 
 你的任務：
@@ -183,25 +185,26 @@ function splitDataUrl(dataUrl) {
   };
 }
 
-export function buildGenerationRequest(config, { imageDataUrls, userContext }) {
+export function buildGenerationRequest(config, { imageDataUrls, userContext }, options = {}) {
+  const safeConfig = validateProviderConfig(config, options);
   // support single string for backward-compat
   const urls = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls];
   // Most vision models only support one image per request; always use the first (primary) image.
   const primaryUrl = urls[0];
   const userPrompt = `使用者補充描述：${userContext || '無'}。\n請根據圖片與這段描述，輸出四平台草稿。`;
 
-  if (config.protocol === 'anthropic') {
+  if (safeConfig.protocol === 'anthropic') {
     const { mediaType, base64Data } = splitDataUrl(primaryUrl);
 
     return {
-      url: `${config.baseUrl}/messages`,
+      url: `${safeConfig.baseUrl}/messages`,
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
+        'x-api-key': safeConfig.apiKey,
         'anthropic-version': '2023-06-01',
       },
       data: {
-        model: config.model,
+        model: safeConfig.model,
         max_tokens: 3000,
         system: SYSTEM_PROMPT,
         messages: [
@@ -223,13 +226,13 @@ export function buildGenerationRequest(config, { imageDataUrls, userContext }) {
   }
 
   const headers = { 'Content-Type': 'application/json' };
-  if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+  if (safeConfig.apiKey) headers.Authorization = `Bearer ${safeConfig.apiKey}`;
 
   return {
-    url: `${config.baseUrl}/chat/completions`,
+    url: `${safeConfig.baseUrl}/chat/completions`,
     headers,
     data: {
-      model: config.model,
+      model: safeConfig.model,
       response_format: { type: 'json_object' },
       max_tokens: 3000,
       messages: [
@@ -248,7 +251,8 @@ export function buildGenerationRequest(config, { imageDataUrls, userContext }) {
   };
 }
 
-export function buildSinglePlatformGenerationRequest(config, platform, { imageDataUrls, userContext, currentContent }) {
+export function buildSinglePlatformGenerationRequest(config, platform, { imageDataUrls, userContext, currentContent }, options = {}) {
+  const safeConfig = validateProviderConfig(config, options);
   const urls = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls];
   const primaryUrl = urls[0];
   
@@ -298,18 +302,18 @@ ${currentContent ? `【目前已生成的文案（請提供不同角度的全新
 
   const userPrompt = `使用者補充描述：${userContext || '無'}。\n請根據圖片與這段描述，為 ${name} 重新生成一份最符合其特性、更加精采的文案。`;
 
-  if (config.protocol === 'anthropic') {
+  if (safeConfig.protocol === 'anthropic') {
     const { mediaType, base64Data } = splitDataUrl(primaryUrl);
 
     return {
-      url: `${config.baseUrl}/messages`,
+      url: `${safeConfig.baseUrl}/messages`,
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
+        'x-api-key': safeConfig.apiKey,
         'anthropic-version': '2023-06-01',
       },
       data: {
-        model: config.model,
+        model: safeConfig.model,
         max_tokens: 2000,
         system: systemPrompt,
         messages: [
@@ -331,13 +335,13 @@ ${currentContent ? `【目前已生成的文案（請提供不同角度的全新
   }
 
   const headers = { 'Content-Type': 'application/json' };
-  if (config.apiKey) headers.Authorization = `Bearer ${config.apiKey}`;
+  if (safeConfig.apiKey) headers.Authorization = `Bearer ${safeConfig.apiKey}`;
 
   return {
-    url: `${config.baseUrl}/chat/completions`,
+    url: `${safeConfig.baseUrl}/chat/completions`,
     headers,
     data: {
-      model: config.model,
+      model: safeConfig.model,
       response_format: { type: 'json_object' },
       max_tokens: 2000,
       messages: [

@@ -1,0 +1,1099 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>系統開發指引 — Skills for Real Engineers</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0f14;
+    --surface: #13161e;
+    --surface2: #1a1e29;
+    --border: #252a38;
+    --accent: #f0b429;
+    --accent2: #e05c2a;
+    --green: #3ecf8e;
+    --red: #f55f5f;
+    --blue: #5b9cf6;
+    --text: #e8ecf4;
+    --muted: #6b7491;
+    --mid: #9ba3bf;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    overflow-x: hidden;
+  }
+
+  /* ── NOISE TEXTURE OVERLAY ── */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 9999;
+    opacity: 0.4;
+  }
+
+  /* ── HERO ── */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 6rem 2rem 4rem;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+
+  .hero-grid {
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(var(--border) 1px, transparent 1px),
+      linear-gradient(90deg, var(--border) 1px, transparent 1px);
+    background-size: 60px 60px;
+    opacity: 0.35;
+    mask-image: radial-gradient(ellipse 80% 70% at 50% 50%, black 30%, transparent 100%);
+  }
+
+  .hero-glow {
+    position: absolute;
+    width: 600px; height: 600px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(240,180,41,0.08) 0%, transparent 70%);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -60%);
+    pointer-events: none;
+  }
+
+  .hero-inner {
+    max-width: 900px;
+    margin: 0 auto;
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .hero-tag::before {
+    content: '';
+    display: block;
+    width: 32px;
+    height: 1px;
+    background: var(--accent);
+  }
+
+  h1 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(3rem, 7vw, 5.5rem);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    margin-bottom: 2rem;
+  }
+
+  h1 em {
+    font-style: italic;
+    color: var(--accent);
+  }
+
+  .hero-sub {
+    font-size: 1.15rem;
+    color: var(--mid);
+    max-width: 560px;
+    line-height: 1.8;
+    margin-bottom: 3rem;
+  }
+
+  .hero-meta {
+    display: flex;
+    gap: 2.5rem;
+    flex-wrap: wrap;
+  }
+
+  .meta-item {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--muted);
+  }
+
+  .meta-item span {
+    color: var(--text);
+    font-weight: 500;
+  }
+
+  /* ── NAV STRIP ── */
+  .nav-strip {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(13,15,20,0.92);
+    backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    padding: 0.8rem 2rem;
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+  }
+
+  .nav-strip a {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    text-decoration: none;
+    padding: 0.4rem 1rem;
+    border-radius: 4px;
+    white-space: nowrap;
+    transition: color 0.2s, background 0.2s;
+  }
+
+  .nav-strip a:hover {
+    color: var(--text);
+    background: var(--surface);
+  }
+
+  /* ── SECTIONS ── */
+  .section {
+    max-width: 980px;
+    margin: 0 auto;
+    padding: 6rem 2rem;
+  }
+
+  .section + .section {
+    border-top: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  h2 {
+    font-family: 'DM Serif Display', serif;
+    font-size: clamp(2rem, 4vw, 3rem);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    margin-bottom: 1rem;
+  }
+
+  h3 {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.5rem;
+    margin-bottom: 0.6rem;
+    line-height: 1.2;
+  }
+
+  .lead {
+    font-size: 1.1rem;
+    color: var(--mid);
+    max-width: 640px;
+    margin-bottom: 3.5rem;
+  }
+
+  /* ── PROBLEM CARDS ── */
+  .problems {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1.5px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 3rem;
+  }
+
+  .problem-card {
+    background: var(--surface);
+    padding: 2rem;
+    position: relative;
+    overflow: hidden;
+    transition: background 0.2s;
+  }
+
+  .problem-card:hover { background: var(--surface2); }
+
+  .problem-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 3.5rem;
+    font-weight: 600;
+    color: var(--border);
+    position: absolute;
+    top: 1rem; right: 1.5rem;
+    line-height: 1;
+    user-select: none;
+  }
+
+  .problem-icon {
+    font-size: 1.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .problem-card h3 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 0.5rem;
+  }
+
+  .problem-card p {
+    font-size: 0.88rem;
+    color: var(--muted);
+    line-height: 1.65;
+  }
+
+  .problem-fix {
+    margin-top: 1.2rem;
+    padding: 0.7rem 1rem;
+    background: var(--bg);
+    border-radius: 6px;
+    border-left: 2px solid var(--accent);
+  }
+
+  .problem-fix-label {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+  }
+
+  .cmd {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    color: var(--green);
+    display: inline-block;
+  }
+
+  /* ── WORKFLOW TIMELINE ── */
+  .timeline {
+    position: relative;
+    padding-left: 2.5rem;
+  }
+
+  .timeline::before {
+    content: '';
+    position: absolute;
+    left: 0.6rem;
+    top: 0.5rem;
+    bottom: 0.5rem;
+    width: 1px;
+    background: linear-gradient(to bottom, var(--accent), var(--border), transparent);
+  }
+
+  .tl-item {
+    position: relative;
+    padding-bottom: 2.5rem;
+  }
+
+  .tl-item:last-child { padding-bottom: 0; }
+
+  .tl-dot {
+    position: absolute;
+    left: -2.5rem;
+    top: 0.35rem;
+    width: 13px; height: 13px;
+    border-radius: 50%;
+    border: 2px solid var(--accent);
+    background: var(--bg);
+    z-index: 1;
+  }
+
+  .tl-dot.green { border-color: var(--green); }
+  .tl-dot.blue  { border-color: var(--blue); }
+  .tl-dot.red   { border-color: var(--red); }
+
+  .tl-phase {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.3rem;
+  }
+
+  .tl-title {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.35rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .tl-body {
+    font-size: 0.92rem;
+    color: var(--mid);
+    max-width: 600px;
+    margin-bottom: 0.8rem;
+  }
+
+  .tl-chips {
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .chip {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    padding: 0.2rem 0.6rem;
+    border-radius: 4px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--mid);
+  }
+
+  .chip.accent { color: var(--accent); border-color: rgba(240,180,41,0.25); background: rgba(240,180,41,0.05); }
+  .chip.green  { color: var(--green);  border-color: rgba(62,207,142,0.25); background: rgba(62,207,142,0.05); }
+  .chip.blue   { color: var(--blue);   border-color: rgba(91,156,246,0.25); background: rgba(91,156,246,0.05); }
+
+  /* ── SKILLS TABLE ── */
+  .skills-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+
+  .skill-cell {
+    background: var(--surface);
+    padding: 1.5rem;
+    transition: background 0.2s;
+  }
+
+  .skill-cell:hover { background: var(--surface2); }
+
+  .skill-cat {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .skill-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .skill-desc {
+    font-size: 0.82rem;
+    color: var(--mid);
+    line-height: 1.6;
+  }
+
+  /* ── PRINCIPLE CALLOUTS ── */
+  .principles {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .principle {
+    display: grid;
+    grid-template-columns: 3.5rem 1fr;
+    gap: 1.5rem;
+    align-items: start;
+    padding: 1.8rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    transition: border-color 0.2s;
+  }
+
+  .principle:hover { border-color: var(--accent); }
+
+  .principle-icon {
+    width: 3.5rem; height: 3.5rem;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.4rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+  }
+
+  .principle h3 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: 0.35rem;
+  }
+
+  .principle p {
+    font-size: 0.88rem;
+    color: var(--mid);
+    line-height: 1.65;
+  }
+
+  /* ── QUOTE BLOCK ── */
+  .quote-block {
+    padding: 2.5rem;
+    border-left: 3px solid var(--accent);
+    background: var(--surface);
+    border-radius: 0 10px 10px 0;
+    margin: 3rem 0;
+  }
+
+  .quote-text {
+    font-family: 'DM Serif Display', serif;
+    font-size: 1.35rem;
+    font-style: italic;
+    line-height: 1.5;
+    margin-bottom: 1rem;
+    color: var(--text);
+  }
+
+  .quote-src {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+    letter-spacing: 0.05em;
+  }
+
+  /* ── TDD CYCLE ── */
+  .tdd-cycle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0;
+    margin: 3rem 0;
+    flex-wrap: wrap;
+  }
+
+  .tdd-step {
+    text-align: center;
+    padding: 1.5rem 2rem;
+    min-width: 140px;
+  }
+
+  .tdd-circle {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 0.8rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+    border: 2px solid;
+  }
+
+  .tdd-circle.red-c  { color: var(--red);   border-color: var(--red);   background: rgba(245,95,95,0.08); }
+  .tdd-circle.green-c{ color: var(--green); border-color: var(--green); background: rgba(62,207,142,0.08); }
+  .tdd-circle.blue-c { color: var(--blue);  border-color: var(--blue);  background: rgba(91,156,246,0.08); }
+
+  .tdd-label {
+    font-size: 0.82rem;
+    color: var(--mid);
+  }
+
+  .tdd-arrow {
+    color: var(--muted);
+    font-size: 1.4rem;
+    padding: 0 0.5rem;
+  }
+
+  /* ── DOCS STRUCTURE ── */
+  .docs-box {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 2rem;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.82rem;
+    line-height: 2;
+  }
+
+  .docs-box .dir  { color: var(--blue); }
+  .docs-box .file { color: var(--green); }
+  .docs-box .note { color: var(--muted); padding-left: 1rem; }
+  .docs-box .key  { color: var(--accent); font-weight: 600; }
+
+  /* ── ADR CRITERIA ── */
+  .adr-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1rem;
+    margin-top: 2rem;
+  }
+
+  .adr-card {
+    padding: 1.5rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .adr-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .adr-card h3 {
+    font-family: 'Instrument Sans', sans-serif;
+    font-size: 0.95rem;
+    font-weight: 600;
+    margin-bottom: 0.4rem;
+  }
+
+  .adr-card p {
+    font-size: 0.82rem;
+    color: var(--muted);
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 3rem 2rem;
+    text-align: center;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* ── ANIMATIONS ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .hero-inner > * {
+    animation: fadeUp 0.6s ease both;
+  }
+
+  .hero-tag  { animation-delay: 0.1s; }
+  h1         { animation-delay: 0.2s; }
+  .hero-sub  { animation-delay: 0.3s; }
+  .hero-meta { animation-delay: 0.4s; }
+
+  /* ── RESPONSIVE ── */
+  @media (max-width: 700px) {
+    .problems    { grid-template-columns: 1fr; }
+    .skills-grid { grid-template-columns: 1fr; }
+    .adr-grid    { grid-template-columns: 1fr; }
+    .tdd-arrow   { display: none; }
+    .tdd-cycle   { gap: 0.5rem; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── HERO ── -->
+<section class="hero">
+  <div class="hero-grid"></div>
+  <div class="hero-glow"></div>
+  <div class="hero-inner">
+    <div class="hero-tag">Skills for Real Engineers · mattpocock/skills</div>
+    <h1>真實工程師的<br><em>系統開發指引</em></h1>
+    <p class="hero-sub">
+      基於 Matt Pocock 的 .claude 技能集整理而成。這套方法論不搶奪你的掌控權，
+      而是以小型、可組合的 Skills 修正 AI 協作開發中最常見的四個失敗模式。
+    </p>
+    <div class="hero-meta">
+      <div class="meta-item">來源 <span>github.com/mattpocock/skills</span></div>
+      <div class="meta-item">分類 <span>工程 × 生產力</span></div>
+      <div class="meta-item">適用 <span>Claude Code / Codex / 任何 Coding Agent</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── NAVIGATION ── -->
+<nav class="nav-strip">
+  <a href="#problems">四大失敗模式</a>
+  <a href="#workflow">開發流程</a>
+  <a href="#skills">技能清單</a>
+  <a href="#tdd">TDD 實踐</a>
+  <a href="#docs">文件架構</a>
+  <a href="#principles">工程原則</a>
+</nav>
+
+<!-- ── SECTION 1: PROBLEMS ── -->
+<section class="section" id="problems">
+  <div class="section-label">01 &nbsp;核心問題</div>
+  <h2>四大失敗模式</h2>
+  <p class="lead">AI 協作開發加速了軟體熵增速度。在享受生產力紅利之前，必須先認識並針對性地解決這四個根本問題。</p>
+
+  <div class="problems">
+    <div class="problem-card">
+      <div class="problem-num">01</div>
+      <div class="problem-icon">🎯</div>
+      <h3>Agent 沒做你要的</h3>
+      <p>最常見的失敗模式是「失準」。你以為 AI 懂你，但看到產出才發現根本南轅北轍。這是人機之間溝通落差的必然結果。</p>
+      <div class="problem-fix">
+        <div class="problem-fix-label">解法</div>
+        <span class="cmd">/grill-with-docs</span>
+        <span class="cmd" style="margin-left:0.5rem">/grill-me</span>
+      </div>
+    </div>
+
+    <div class="problem-card">
+      <div class="problem-num">02</div>
+      <div class="problem-icon">💬</div>
+      <h3>Agent 說了太多廢話</h3>
+      <p>AI 被丟進專案後會自己摸索術語。結果是用 20 個字解釋本來 1 個字就能說清楚的概念，浪費 token 也浪費時間。</p>
+      <div class="problem-fix">
+        <div class="problem-fix-label">解法</div>
+        <span class="cmd">CONTEXT.md</span>
+        <span class="cmd" style="margin-left:0.5rem; color: var(--blue)">共用語言</span>
+      </div>
+    </div>
+
+    <div class="problem-card">
+      <div class="problem-num">03</div>
+      <div class="problem-icon">🔴</div>
+      <h3>程式碼根本跑不動</h3>
+      <p>對齊問題解決了，但程式還是爛的？這時要看的是回饋迴路。缺乏靜態型別、瀏覽器存取與自動化測試，Agent 就是在盲飛。</p>
+      <div class="problem-fix">
+        <div class="problem-fix-label">解法</div>
+        <span class="cmd">/tdd</span>
+        <span class="cmd" style="margin-left:0.5rem">/diagnose</span>
+      </div>
+    </div>
+
+    <div class="problem-card">
+      <div class="problem-num">04</div>
+      <div class="problem-icon">🏚️</div>
+      <h3>建出一顆泥球</h3>
+      <p>AI 加速撰碼也同步加速軟體腐化。模組邊界模糊、相依纏繞，最終演變成讓人不敢碰的「泥球」架構。</p>
+      <div class="problem-fix">
+        <div class="problem-fix-label">解法</div>
+        <span class="cmd">/improve-codebase-architecture</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SECTION 2: WORKFLOW ── -->
+<section class="section" id="workflow">
+  <div class="section-label">02 &nbsp;開發流程</div>
+  <h2>從需求到交付</h2>
+  <p class="lead">每次功能開發都走完整個循環——不跳過、不敷衍。以下是每個階段的核心活動與對應 Skill。</p>
+
+  <div class="timeline">
+
+    <div class="tl-item">
+      <div class="tl-dot"></div>
+      <div class="tl-phase">Phase 0 &nbsp;·&nbsp; 一次性初始化</div>
+      <h3 class="tl-title">專案設定</h3>
+      <p class="tl-body">在每個 repo 執行一次。設定 issue tracker（GitHub / Linear / 本地檔案）、triage label 語彙、文件存放路徑，讓其他所有 Skills 能正常運作。</p>
+      <div class="tl-chips">
+        <span class="chip accent">/setup-matt-pocock-skills</span>
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot"></div>
+      <div class="tl-phase">Phase 1 &nbsp;·&nbsp; 每次功能開始前</div>
+      <h3 class="tl-title">Grilling 對齊會議</h3>
+      <p class="tl-body">
+        在動手寫任何一行程式之前，讓 Agent 對你的計畫「進行質詢」。它會沿著決策樹的每個分支深入追問，
+        對照既有的 <code style="color:var(--green);font-family:IBM Plex Mono,monospace;font-size:0.85em">CONTEXT.md</code> 挑戰你的用語，
+        確保你們對「要做什麼」達到真正的共識。每次都用，不例外。
+      </p>
+      <div class="tl-chips">
+        <span class="chip accent">/grill-with-docs</span>
+        <span class="chip">更新 CONTEXT.md</span>
+        <span class="chip">新增 ADR（必要時）</span>
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot blue"></div>
+      <div class="tl-phase">Phase 2 &nbsp;·&nbsp; 規格化</div>
+      <h3 class="tl-title">產出 PRD 與 Issues</h3>
+      <p class="tl-body">
+        將對話脈絡轉為正式 PRD 並提交為 GitHub issue；再把 PRD 拆解為可獨立執行的垂直切片 issues，
+        每張 issue 都能被任何人或任何 Agent 獨立拿起來做。
+      </p>
+      <div class="tl-chips">
+        <span class="chip blue">/to-prd</span>
+        <span class="chip blue">/to-issues</span>
+        <span class="chip">/triage</span>
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot green"></div>
+      <div class="tl-phase">Phase 3 &nbsp;·&nbsp; 迭代建構</div>
+      <h3 class="tl-title">TDD 紅綠重構循環</h3>
+      <p class="tl-body">
+        一次一個垂直切片，先寫失敗的測試（紅燈），再讓測試通過（綠燈），最後重構讓設計更乾淨（藍燈）。
+        這個回饋迴路是讓 Agent 產出高品質程式碼的關鍵。
+      </p>
+      <div class="tl-chips">
+        <span class="chip green">/tdd</span>
+        <span class="chip">靜態型別檢查</span>
+        <span class="chip">自動化測試</span>
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot" style="border-color:var(--red)"></div>
+      <div class="tl-phase">Phase 4 &nbsp;·&nbsp; 問題排查</div>
+      <h3 class="tl-title">系統化診斷</h3>
+      <p class="tl-body">
+        遇到頑固 bug 或效能退化時，走完整的診斷迴路：重現 → 最小化 → 提假說 → 加儀器 → 修復 → 加回歸測試。
+        不憑直覺亂猜，用方法論找根因。
+      </p>
+      <div class="tl-chips">
+        <span class="chip" style="color:var(--red);border-color:rgba(245,95,95,0.25);background:rgba(245,95,95,0.05)">/diagnose</span>
+        <span class="chip green">/zoom-out</span>
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot blue"></div>
+      <div class="tl-phase">Phase 5 &nbsp;·&nbsp; 每幾天一次</div>
+      <h3 class="tl-title">架構健檢</h3>
+      <p class="tl-body">
+        AI 開發會加速架構腐化，需要定期主動投資設計。搜尋「深化機會」——找出能以更簡單介面封裝更多功能的模組，
+        並依照 CONTEXT.md 的領域語言重新整理邊界。
+      </p>
+      <div class="tl-chips">
+        <span class="chip blue">/improve-codebase-architecture</span>
+        <span class="chip blue">/zoom-out</span>
+      </div>
+    </div>
+
+    <div class="tl-item">
+      <div class="tl-dot"></div>
+      <div class="tl-phase">Phase 6 &nbsp;·&nbsp; 上下文切換時</div>
+      <h3 class="tl-title">交接文件</h3>
+      <p class="tl-body">
+        將當前對話壓縮成交接文件，讓另一個 Agent（或未來的自己）能無縫接手繼續工作，不需要重建所有上下文。
+      </p>
+      <div class="tl-chips">
+        <span class="chip accent">/handoff</span>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── SECTION 3: SKILLS ── -->
+<section class="section" id="skills">
+  <div class="section-label">03 &nbsp;技能清單</div>
+  <h2>完整 Skills 速查</h2>
+  <p class="lead">所有可用指令一覽，按分類整理。每個 Skill 都是獨立可組合的，可視情況混用。</p>
+
+  <div class="skills-grid">
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/grill-with-docs</div>
+      <div class="skill-desc">對照現有領域模型質詢你的計畫，同步更新 CONTEXT.md 與 ADR。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/tdd</div>
+      <div class="skill-desc">紅綠重構迴路，每次一個垂直切片地建構或修復功能。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/diagnose</div>
+      <div class="skill-desc">系統化診斷迴路：重現 → 最小化 → 假說 → 儀器 → 修復 → 回歸測試。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/to-prd</div>
+      <div class="skill-desc">將對話脈絡轉為 PRD 並提交為 GitHub issue，不做額外訪談。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/to-issues</div>
+      <div class="skill-desc">把計畫或 PRD 拆解為可獨立執行的垂直切片 GitHub issues。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/triage</div>
+      <div class="skill-desc">透過狀態機角色分配來篩選分類 issues。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/improve-codebase-architecture</div>
+      <div class="skill-desc">尋找深化機會，以 CONTEXT.md 與 ADR 為基礎改善整體架構。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/zoom-out</div>
+      <div class="skill-desc">要求 Agent 對陌生程式碼段落提供整體系統視角與更高層次的說明。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/prototype</div>
+      <div class="skill-desc">建立可拋棄的原型，探索設計方向：終端機 app 或多個 UI 變體。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Engineering</div>
+      <div class="skill-name">/setup-matt-pocock-skills</div>
+      <div class="skill-desc">每個 repo 執行一次，初始化 issue tracker、triage label 語彙與文件佈局。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Productivity</div>
+      <div class="skill-name">/grill-me</div>
+      <div class="skill-desc">對任何計畫或設計進行無情質詢，直到決策樹的每個分支都被解決。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Productivity</div>
+      <div class="skill-name">/handoff</div>
+      <div class="skill-desc">將當前對話壓縮為交接文件，讓另一個 Agent 無縫接手。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Productivity</div>
+      <div class="skill-name">/caveman</div>
+      <div class="skill-desc">超壓縮溝通模式，省去填充詞，token 用量降低約 75%。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Productivity</div>
+      <div class="skill-name">/write-a-skill</div>
+      <div class="skill-desc">建立具有適當結構與漸進揭示的全新 Skill。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Misc</div>
+      <div class="skill-name">/setup-pre-commit</div>
+      <div class="skill-desc">設定 Husky pre-commit hooks：lint-staged、Prettier、型別檢查、測試。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Misc</div>
+      <div class="skill-name">/git-guardrails-claude-code</div>
+      <div class="skill-desc">在危險 git 指令執行前設置 Claude Code hooks 攔截保護。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Misc</div>
+      <div class="skill-name">/scaffold-exercises</div>
+      <div class="skill-desc">建立包含章節、題目、解答與說明的練習目錄結構。</div>
+    </div>
+    <div class="skill-cell">
+      <div class="skill-cat">Misc</div>
+      <div class="skill-name">/migrate-to-shoehorn</div>
+      <div class="skill-desc">將測試檔案從 as 型別斷言遷移至 @total-typescript/shoehorn。</div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SECTION 4: TDD ── -->
+<section class="section" id="tdd">
+  <div class="section-label">04 &nbsp;TDD 實踐</div>
+  <h2>紅綠重構循環</h2>
+  <p class="lead">自動化測試的紅綠重構迴路是確保 Agent 產出品質的核心機制。沒有回饋迴路，Agent 就是在盲飛。</p>
+
+  <div class="tdd-cycle">
+    <div class="tdd-step">
+      <div class="tdd-circle red-c">RED</div>
+      <div class="tl-phase" style="text-align:center">Step 1</div>
+      <div class="tdd-label">寫失敗的測試<br><span style="color:var(--muted);font-size:0.75rem">定義期望行為</span></div>
+    </div>
+    <div class="tdd-arrow">→</div>
+    <div class="tdd-step">
+      <div class="tdd-circle green-c">GREEN</div>
+      <div class="tl-phase" style="text-align:center">Step 2</div>
+      <div class="tdd-label">讓測試通過<br><span style="color:var(--muted);font-size:0.75rem">最小可行實作</span></div>
+    </div>
+    <div class="tdd-arrow">→</div>
+    <div class="tdd-step">
+      <div class="tdd-circle blue-c">REFACTOR</div>
+      <div class="tl-phase" style="text-align:center">Step 3</div>
+      <div class="tdd-label">重構改善設計<br><span style="color:var(--muted);font-size:0.75rem">測試仍需通過</span></div>
+    </div>
+    <div class="tdd-arrow">→</div>
+    <div class="tdd-step">
+      <div class="tdd-circle red-c">NEXT</div>
+      <div class="tl-phase" style="text-align:center">Repeat</div>
+      <div class="tdd-label">下一個切片<br><span style="color:var(--muted);font-size:0.75rem">垂直堆疊進度</span></div>
+    </div>
+  </div>
+
+  <div class="quote-block">
+    <div class="quote-text">「永遠走小步、刻意前進。回饋速率就是你的速度上限。永遠不要承擔超出能力的任務。」</div>
+    <div class="quote-src">— David Thomas &amp; Andrew Hunt, The Pragmatic Programmer</div>
+  </div>
+
+  <div class="principles" style="margin-top:2rem">
+    <div class="principle">
+      <div class="principle-icon">✂️</div>
+      <div>
+        <h3>垂直切片，而非水平分層</h3>
+        <p>每個 issue 代表一個從 UI 到資料庫的完整功能切片，而不是「先做所有的 model」或「再做所有的 controller」。每個切片都能獨立測試、獨立交付。</p>
+      </div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🔬</div>
+      <div>
+        <h3>測試要說故事，不要測實作細節</h3>
+        <p>好測試描述的是行為，不是內部實作。測試應該在你重構程式碼後仍然有效，而不是因為你改了一個私有方法名稱就爆炸。</p>
+      </div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🔁</div>
+      <div>
+        <h3>回饋迴路越短越好</h3>
+        <p>靜態型別、lint、單元測試、整合測試——每一層都是給 Agent 的即時信號。迴路越緊密，Agent 犯錯就越快被抓到，修正成本越低。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── SECTION 5: DOCS ── -->
+<section class="section" id="docs">
+  <div class="section-label">05 &nbsp;文件架構</div>
+  <h2>建立共用語言</h2>
+  <p class="lead">
+    CONTEXT.md 是整個方法論最強大的工具之一。它讓 Agent 使用與你相同的語言，
+    讓變數、函數、檔案命名保持一致，並大幅降低每次對話的 token 消耗。
+  </p>
+
+  <div class="docs-box">
+    <div><span class="dir">📁 /</span></div>
+    <div>&nbsp;&nbsp;<span class="key">├── CONTEXT.md</span> &nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← 專案領域語彙表，最重要的文件</span></div>
+    <div>&nbsp;&nbsp;<span class="file">├── CLAUDE.md</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← Agent 行為規則與慣例</span></div>
+    <div>&nbsp;&nbsp;<span class="dir">├── docs/</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="dir">└── adr/</span> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="note">← Architecture Decision Records</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">├── 0001-event-sourced-orders.md</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">└── 0002-postgres-for-write-model.md</span></div>
+    <div>&nbsp;&nbsp;<span class="dir">└── src/</span></div>
+    <br>
+    <div style="color:var(--muted);font-size:0.75rem">── 多 Context 架構（有 CONTEXT-MAP.md 時）──</div>
+    <br>
+    <div><span class="key">├── CONTEXT-MAP.md</span> &nbsp;<span class="note">← 指向各 context 的位置</span></div>
+    <div><span class="dir">└── src/</span></div>
+    <div>&nbsp;&nbsp;<span class="dir">├── ordering/</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">├── CONTEXT.md</span> &nbsp;&nbsp;&nbsp;<span class="note">← 訂單領域語彙</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="dir">└── docs/adr/</span> &nbsp;&nbsp;<span class="note">← 訂單領域決策</span></div>
+    <div>&nbsp;&nbsp;<span class="dir">└── billing/</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="file">├── CONTEXT.md</span> &nbsp;&nbsp;&nbsp;<span class="note">← 帳單領域語彙</span></div>
+    <div>&nbsp;&nbsp;&nbsp;&nbsp;<span class="dir">└── docs/adr/</span></div>
+  </div>
+
+  <h3 style="font-family:'DM Serif Display',serif;font-size:1.5rem;margin:3rem 0 0.5rem">何時才需要寫 ADR？</h3>
+  <p style="color:var(--mid);font-size:0.9rem;margin-bottom:0">三個條件同時成立才需要，缺一不可：</p>
+
+  <div class="adr-grid">
+    <div class="adr-card">
+      <div class="adr-num">條件一</div>
+      <h3>難以逆轉</h3>
+      <p>改變這個決定的代價是顯著的。若改起來很簡單，就不需要記錄。</p>
+    </div>
+    <div class="adr-card">
+      <div class="adr-num">條件二</div>
+      <h3>脫離脈絡會讓人困惑</h3>
+      <p>未來的讀者看到這段程式碼會疑惑「為什麼這樣做？」——有必要留下解釋。</p>
+    </div>
+    <div class="adr-card">
+      <div class="adr-num">條件三</div>
+      <h3>真正的取捨</h3>
+      <p>存在過真正的替代方案，且你因為特定理由選擇了這條路，而非別無選擇。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ── SECTION 6: PRINCIPLES ── -->
+<section class="section" id="principles">
+  <div class="section-label">06 &nbsp;工程哲學</div>
+  <h2>回到根本</h2>
+  <p class="lead">這套 Skills 的底層，是幾十年軟體工程積累下來的基本功。AI 時代不廢棄這些原則，反而讓它們比以往更重要。</p>
+
+  <div class="principles">
+    <div class="principle">
+      <div class="principle-icon">🗣️</div>
+      <div>
+        <h3>共用語言（Ubiquitous Language）</h3>
+        <p>領域專家和開發者之間的語言鴻溝是軟體複雜度的根源。CONTEXT.md 強制建立唯一的、被所有人（包含 AI）共同使用的術語集，讓對話、程式碼、文件三者一致。</p>
+      </div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🏗️</div>
+      <div>
+        <h3>深度模組（Deep Modules）</h3>
+        <p>最好的模組是「深的」——以簡單的介面隱藏大量的功能複雜度。與其有很多小而淺的函數互相纏繞，不如讓邊界更少、更深、更穩定。</p>
+      </div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">📅</div>
+      <div>
+        <h3>每天投資設計</h3>
+        <p>Kent Beck 說：「每天投資系統設計。」AI 開發讓這句話更加緊迫——功能可以在幾小時內堆積如山，架構腐化的速度也以相同倍率加快。不主動維護，就等著收拾殘局。</p>
+      </div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🎯</div>
+      <div>
+        <h3>小步前進，保持掌控</h3>
+        <p>Pragmatic Programmer 強調：回饋速率就是速度上限。一次做一個垂直切片、一次走一個 TDD 循環，讓你始終清楚程式碼處於什麼狀態，而不是等到最後才發現一切都錯了。</p>
+      </div>
+    </div>
+    <div class="principle">
+      <div class="principle-icon">🔓</div>
+      <div>
+        <h3>Skills 而非流程框架</h3>
+        <p>GSD、BMAD、Spec-Kit 等框架試圖接管整個開發流程，但這樣會讓流程本身的 bug 變得難以修復。這套 Skills 刻意設計為小型、可獨立使用的工具，保留你的掌控權，讓你 hack 它、修改它、讓它成為你自己的。</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="quote-block" style="margin-top:3rem">
+    <div class="quote-text">「軟體工程的基本功在 AI 時代比以往任何時候都更加重要。這些 Skills 是我盡力將這些基本功凝縮成可重複實踐方法的最佳嘗試。」</div>
+    <div class="quote-src">— Matt Pocock, mattpocock/skills README</div>
+  </div>
+</section>
+
+<!-- ── FOOTER ── -->
+<footer>
+  <p>本文件根據 <a href="https://github.com/mattpocock/skills" target="_blank">github.com/mattpocock/skills</a> 整理 &nbsp;·&nbsp; MIT License</p>
+  <p style="margin-top:0.5rem;color:var(--border)">快速安裝：<span style="color:var(--green);font-family:'IBM Plex Mono',monospace">npx skills@latest add mattpocock/skills</span></p>
+</footer>
+
+</body>
+</html>

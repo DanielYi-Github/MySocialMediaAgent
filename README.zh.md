@@ -61,13 +61,7 @@ npm run dev:all
 4. 若 provider 需要 API Key，請填入對應金鑰。
 5. 請使用 vision-capable model；純文字模型無法分析圖片。
 
-自訂 OpenAI-compatible provider 必須先加入後端 proxy 白名單：
-
-```bash
-PROXY_ALLOWED_HOSTS=api.your-provider.com npm run server
-```
-
-內建 provider 與本地 Ollama `http://localhost:11434/v1/*` 已預設允許。
+自訂 OpenAI-compatible provider 可使用任何公開 HTTPS base URL。本機 OpenAI-compatible 工具可使用 localhost `/v1/*` endpoint，例如 Ollama 的 `http://localhost:11434/v1`。
 
 ### 4. 產出草稿
 

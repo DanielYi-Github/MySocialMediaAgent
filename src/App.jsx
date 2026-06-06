@@ -3,7 +3,7 @@ import { Settings, Upload, Wand2, MapPin, Sparkles, Palette, Loader2, X, Send, C
 import axios from 'axios';
 import ConfigDrawer from './components/ConfigDrawer';
 import PlatformCard from './components/PlatformCard';
-import { normalizeConfig, requiresApiKey } from './lib/providers';
+import { getOptionalReadyLlmConfig, getReadyLlmConfig } from './lib/providers';
 import { buildGenerationRequest, normalizeGenerationResponse, appendSignature, buildSinglePlatformGenerationRequest, normalizeSinglePlatformResponse } from './lib/generation';
 import { postToFacebook, postToInstagram, postToInstagramPersonal, postToThreads, postToXhs, postToFacebookPersonal, postToInstagramBrowser } from './lib/publishing';
 
@@ -71,6 +71,16 @@ function App() {
     });
   }, []);
 
+  const resolveLlmConfig = useCallback(({ requireApiKey = true } = {}) => {
+    try {
+      return getReadyLlmConfig(localStorage, { requireApiKey });
+    } catch (err) {
+      alert(err.message || 'LLM 設定有誤');
+      setIsConfigOpen(true);
+      return null;
+    }
+  }, []);
+
   const handleConfirm = (platform) => {
     setConfirmed(prev => ({ ...prev, [platform]: !prev[platform] }));
     setPublishStatus(prev => { const next = { ...prev }; delete next[platform]; return next; });
@@ -80,9 +90,7 @@ function App() {
 
   const handlePublish = async () => {
     const imageDataUrls = previews.slice(0, 10);
-    const llmConfig = (() => {
-      try { return JSON.parse(localStorage.getItem('llm_config') || 'null'); } catch { return null; }
-    })();
+    const llmConfig = getOptionalReadyLlmConfig(localStorage);
     setIsPublishing(true);
 
     for (const platform of confirmedPlatforms) {
@@ -197,12 +205,8 @@ function App() {
   };
 
   const generateContent = async () => {
-    const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
-    if (requiresApiKey(config.provider) && !config.apiKey) {
-      alert('請先在設定中填寫 API Key');
-      setIsConfigOpen(true);
-      return;
-    }
+    const config = resolveLlmConfig();
+    if (!config) return;
 
     if (!previews.length) {
       alert('請先上傳圖片。');
@@ -252,13 +256,14 @@ function App() {
   };
 
   const handlePreviewPrompt = () => {
-    const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
     if (!previews.length) {
       alert('請先上傳圖片，才能拼裝與預覽完整的提示詞喔！');
       return;
     }
 
     try {
+      const config = resolveLlmConfig({ requireApiKey: false });
+      if (!config) return;
       const request = buildGenerationRequest(config, {
         imageDataUrls: previews,
         userContext: context,
@@ -275,13 +280,14 @@ function App() {
   };
 
   const handlePreviewSinglePrompt = (platform) => {
-    const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
     if (!previews.length) {
       alert('請先上傳圖片，才能拼裝與預覽單平台的提示詞喔！');
       return;
     }
 
     try {
+      const config = resolveLlmConfig({ requireApiKey: false });
+      if (!config) return;
       const request = buildSinglePlatformGenerationRequest(config, platform, {
         imageDataUrls: previews,
         userContext: context,
@@ -299,12 +305,8 @@ function App() {
   };
 
   const generateSinglePlatformContent = async (platform, customSys = null, customUser = null) => {
-    const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
-    if (requiresApiKey(config.provider) && !config.apiKey) {
-      alert('請先在設定中填寫 API Key');
-      setIsConfigOpen(true);
-      return;
-    }
+    const config = resolveLlmConfig();
+    if (!config) return;
 
     if (!previews.length) {
       alert('請先上傳圖片以重新生成文案。');
@@ -363,9 +365,9 @@ function App() {
   };
 
   const getPlatformDefaultPrompts = (platform) => {
-    const config = normalizeConfig(JSON.parse(localStorage.getItem('llm_config') || 'null'));
     if (!previews.length) return { systemPrompt: '', userPrompt: '' };
     try {
+      const config = getReadyLlmConfig(localStorage, { requireApiKey: false });
       const request = buildSinglePlatformGenerationRequest(config, platform, {
         imageDataUrls: previews,
         userContext: context,

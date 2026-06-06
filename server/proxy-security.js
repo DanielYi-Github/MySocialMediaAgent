@@ -1,27 +1,7 @@
-const DEFAULT_ALLOWED_HOSTS = [
-  'api.openai.com',
-  'api.anthropic.com',
-  'integrate.api.nvidia.com',
-  'generativelanguage.googleapis.com',
-  'graph.facebook.com',
-  'graph.instagram.com',
-  'graph.threads.net',
-];
-
 const ALLOWED_METHODS = new Set(['GET', 'POST']);
-const LOCAL_OLLAMA_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
+const LOCAL_MODEL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
-export function getAllowedProxyHosts(envValue = '') {
-  return new Set([
-    ...DEFAULT_ALLOWED_HOSTS,
-    ...String(envValue)
-      .split(',')
-      .map((host) => host.trim().toLowerCase())
-      .filter(Boolean),
-  ]);
-}
-
-export function validateProxyTarget({ url, method = 'POST', allowedHosts = getAllowedProxyHosts() }) {
+export function validateProxyTarget({ url, method = 'POST' }) {
   const normalizedMethod = String(method).toUpperCase();
   if (!ALLOWED_METHODS.has(normalizedMethod)) {
     throw createProxyValidationError('Proxy method is not allowed');
@@ -35,7 +15,7 @@ export function validateProxyTarget({ url, method = 'POST', allowedHosts = getAl
   }
 
   const hostname = parsedUrl.hostname.toLowerCase();
-  if (isLocalOllamaUrl(parsedUrl)) {
+  if (isLocalModelUrl(parsedUrl)) {
     return { url: parsedUrl.toString(), method: normalizedMethod };
   }
 
@@ -45,10 +25,6 @@ export function validateProxyTarget({ url, method = 'POST', allowedHosts = getAl
 
   if (isPrivateNetworkHost(hostname)) {
     throw createProxyValidationError('Proxy target cannot be a private network host');
-  }
-
-  if (!allowedHosts.has(hostname)) {
-    throw createProxyValidationError('Proxy target host is not allowed');
   }
 
   return { url: parsedUrl.toString(), method: normalizedMethod };
@@ -82,11 +58,11 @@ export function getProxyErrorMessage(err) {
   return redactSensitiveText(message);
 }
 
-function isLocalOllamaUrl(parsedUrl) {
+function isLocalModelUrl(parsedUrl) {
   return (
     parsedUrl.protocol === 'http:' &&
-    LOCAL_OLLAMA_HOSTS.has(parsedUrl.hostname.toLowerCase()) &&
-    parsedUrl.port === '11434' &&
+    LOCAL_MODEL_HOSTS.has(parsedUrl.hostname.toLowerCase()) &&
+    Boolean(parsedUrl.port) &&
     parsedUrl.pathname.startsWith('/v1/')
   );
 }
@@ -98,7 +74,7 @@ function createProxyValidationError(message) {
 }
 
 function isPrivateNetworkHost(hostname) {
-  if (LOCAL_OLLAMA_HOSTS.has(hostname)) return true;
+  if (LOCAL_MODEL_HOSTS.has(hostname)) return true;
   if (hostname === '0.0.0.0') return true;
   if (hostname.startsWith('127.')) return true;
   if (hostname.startsWith('10.')) return true;

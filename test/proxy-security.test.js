@@ -1,6 +1,5 @@
 import assert from 'node:assert';
 import {
-  getAllowedProxyHosts,
   redactSensitiveText,
   validateProxyTarget,
 } from '../server/proxy-security.js';
@@ -27,9 +26,10 @@ try {
 
   assertValid('http://localhost:11434/v1/chat/completions');
   assertValid('http://127.0.0.1:11434/v1/chat/completions');
+  assertValid('http://localhost:1234/v1/chat/completions');
   assertInvalid('http://localhost:3001/api/llm/proxy', /HTTPS|private network|not allowed/);
   assertInvalid('http://127.0.0.1:3001/api/llm/proxy', /HTTPS|private network|not allowed/);
-  console.log('✅ Test Case 2 Passed: Only local Ollama is allowed on localhost');
+  console.log('✅ Test Case 2 Passed: Local OpenAI-compatible model endpoints are allowed on localhost');
 
   assertInvalid('http://api.openai.com/v1/chat/completions', /HTTPS/);
   assertInvalid('https://10.0.0.2/internal', /private network/);
@@ -38,11 +38,9 @@ try {
   assertInvalid('https://169.254.1.1/internal', /private network/);
   console.log('✅ Test Case 3 Passed: Insecure and private-network targets are blocked');
 
-  assertInvalid('https://evil.example.com/v1/chat/completions', /not allowed/);
-  const customHosts = getAllowedProxyHosts('custom.example.com, api.openai.com');
-  assertValid('https://custom.example.com/v1/chat/completions', 'POST', customHosts);
-  assertInvalid('https://evil.example.com/v1/chat/completions', /not allowed/, 'POST', customHosts);
-  console.log('✅ Test Case 4 Passed: Custom hosts require explicit allowlist');
+  assertValid('https://inference-api.nousresearch.com/v1/chat/completions');
+  assertValid('https://custom.example.com/v1/chat/completions');
+  console.log('✅ Test Case 4 Passed: Public HTTPS custom provider hosts are allowed');
 
   assertInvalid('https://api.openai.com/v1/chat/completions', /method/i, 'PUT');
   assertValid('https://api.openai.com/v1/models', 'GET');

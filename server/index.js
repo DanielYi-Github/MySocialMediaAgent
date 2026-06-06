@@ -13,14 +13,12 @@ import {
   publish as igPublish,
 } from './ig.js';
 import {
-  getAllowedProxyHosts,
   getProxyErrorMessage,
   validateProxyTarget,
 } from './proxy-security.js';
 
 const app = express();
 const PORT = 3001;
-const PROXY_ALLOWED_HOSTS = getAllowedProxyHosts(process.env.PROXY_ALLOWED_HOSTS);
 
 // Allow requests from the Vite dev server and built preview
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }));
@@ -57,7 +55,7 @@ app.post('/api/llm/proxy', async (req, res) => {
   if (!url) return res.status(400).json({ error: 'Missing url' });
   if (normalizedMethod === 'POST' && !data) return res.status(400).json({ error: 'Missing data' });
   try {
-    const target = validateProxyTarget({ url, method: normalizedMethod, allowedHosts: PROXY_ALLOWED_HOSTS });
+    const target = validateProxyTarget({ url, method: normalizedMethod });
     let response;
     if (target.method === 'GET') {
       response = await axios.get(target.url, { headers, params: data });

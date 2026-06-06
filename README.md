@@ -61,13 +61,7 @@ Once started:
 4. Enter an API key if the provider requires one.
 5. Use a vision-capable model; text-only models cannot analyze images.
 
-Custom OpenAI-compatible providers must be explicitly allowed by the backend proxy:
-
-```bash
-PROXY_ALLOWED_HOSTS=api.your-provider.com npm run server
-```
-
-Built-in providers and local Ollama at `http://localhost:11434/v1/*` are already allowed.
+Custom OpenAI-compatible providers can use any public HTTPS base URL. Local OpenAI-compatible tools can use a localhost `/v1/*` endpoint, such as Ollama at `http://localhost:11434/v1`.
 
 ### 4. Generate Drafts
 

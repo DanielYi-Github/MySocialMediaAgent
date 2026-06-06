@@ -79,27 +79,92 @@ export function normalizeConfig(savedConfig) {
 
   const provider = PROVIDERS[savedConfig.provider] || PROVIDERS.custom;
   return {
-    provider: savedConfig.provider || provider.id,
-    protocol: savedConfig.protocol || provider.protocol,
+    provider: provider.id,
+    protocol: provider.protocol,
     baseUrl: savedConfig.baseUrl || provider.baseUrl,
     apiKey: savedConfig.apiKey || '',
     model: savedConfig.model || provider.model,
   };
 }
 
-export function buildTestRequest(config) {
-  const cleanBaseUrl = config.baseUrl.replace(/\/+$/, '');
+export function readStoredLlmConfig(storage = globalThis.localStorage) {
+  if (!storage?.getItem) {
+    return getDefaultConfig();
+  }
 
-  if (config.protocol === 'anthropic') {
+  try {
+    return normalizeConfig(JSON.parse(storage.getItem('llm_config') || 'null'));
+  } catch {
+    return getDefaultConfig();
+  }
+}
+
+export function validateProviderConfig(config, options = {}) {
+  const normalized = normalizeConfig(config);
+  const next = {
+    ...normalized,
+    apiKey: normalized.apiKey.trim(),
+    model: (normalized.model || '').trim(),
+    baseUrl: (normalized.baseUrl || '').trim(),
+  };
+
+  if (!next.model) {
+    throw new Error('請填寫模型名稱。');
+  }
+
+  if (!next.baseUrl) {
+    throw new Error('請填寫 API Base URL。');
+  }
+
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(next.baseUrl);
+  } catch {
+    throw new Error('API Base URL 格式錯誤。');
+  }
+
+  if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') {
+    throw new Error('API Base URL 只支援 HTTP 或 HTTPS。');
+  }
+
+  if (parsedUrl.protocol === 'http:' && !isLocalHttpHost(parsedUrl.hostname)) {
+    throw new Error('HTTP API Base URL 只允許本機位址；公開 provider 請使用 HTTPS。');
+  }
+
+  next.baseUrl = parsedUrl.toString().replace(/\/+$/, '');
+  return next;
+}
+
+export function getReadyLlmConfig(storage = globalThis.localStorage, options = {}) {
+  const config = validateProviderConfig(readStoredLlmConfig(storage), options);
+  if (options.requireApiKey !== false && requiresApiKey(config.provider) && !config.apiKey) {
+    throw new Error('請先在設定中填寫 API Key。');
+  }
+  return config;
+}
+
+export function getOptionalReadyLlmConfig(storage = globalThis.localStorage, options = {}) {
+  try {
+    return getReadyLlmConfig(storage, options);
+  } catch {
+    return null;
+  }
+}
+
+export function buildTestRequest(config, options = {}) {
+  const safeConfig = validateProviderConfig(config, options);
+  const cleanBaseUrl = safeConfig.baseUrl.replace(/\/+$/, '');
+
+  if (safeConfig.protocol === 'anthropic') {
     return {
       url: `${cleanBaseUrl}/messages`,
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': config.apiKey,
+        'x-api-key': safeConfig.apiKey,
         'anthropic-version': '2023-06-01',
       },
       data: {
-        model: config.model,
+        model: safeConfig.model,
         max_tokens: 16,
         messages: [{ role: 'user', content: 'Say ok.' }],
       },
@@ -110,8 +175,8 @@ export function buildTestRequest(config) {
     'Content-Type': 'application/json',
   };
 
-  if (config.apiKey) {
-    const cleanApiKey = config.apiKey.trim();
+  if (safeConfig.apiKey) {
+    const cleanApiKey = safeConfig.apiKey.trim();
     headers.Authorization = `Bearer ${cleanApiKey}`;
   }
 
@@ -119,7 +184,7 @@ export function buildTestRequest(config) {
     url: `${cleanBaseUrl}/chat/completions`,
     headers,
     data: {
-      model: config.model,
+      model: safeConfig.model,
       messages: [{ role: 'user', content: 'Say ok.' }],
       max_tokens: 16,
     },
@@ -128,4 +193,9 @@ export function buildTestRequest(config) {
 
 export function requiresApiKey(providerId) {
   return (PROVIDERS[providerId] || PROVIDERS.custom).requiresApiKey;
+}
+
+function isLocalHttpHost(hostname) {
+  const host = hostname.toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]';
 }

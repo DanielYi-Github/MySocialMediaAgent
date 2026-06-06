@@ -9,6 +9,7 @@
     "server": "node server/index.js",
     "setup:xhs": "npx playwright install chromium",
     "test:proxy": "node test/proxy-security.test.js",
+    "test:providers": "node test/providers.test.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

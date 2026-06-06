@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings, X, CheckCircle2, AlertCircle, Loader2, Send } from 'lucide-react';
+import { Settings, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import {
   PROVIDERS,
@@ -7,6 +7,7 @@ import {
   getDefaultConfig,
   normalizeConfig,
   requiresApiKey,
+  validateProviderConfig,
 } from '../lib/providers';
 
 const DEFAULT_PUBLISH_CONFIG = {
@@ -31,7 +32,18 @@ export default function ConfigDrawer({ isOpen, onClose }) {
   }, []);
 
   const handleSave = () => {
-    localStorage.setItem('llm_config', JSON.stringify(config));
+    try {
+      const safeConfig = validateProviderConfig(config);
+      localStorage.setItem('llm_config', JSON.stringify(safeConfig));
+      setConfig(safeConfig);
+      setStatus('idle');
+      setErrorMsg('');
+    } catch (err) {
+      setTab('llm');
+      setStatus('error');
+      setErrorMsg(err.message);
+      return;
+    }
     localStorage.setItem('publish_config', JSON.stringify(publishConfig));
     alert('設定已儲存！');
   };
@@ -61,7 +73,8 @@ export default function ConfigDrawer({ isOpen, onClose }) {
     setStatus('testing');
     setErrorMsg('');
     try {
-      const request = buildTestRequest(config);
+      const safeConfig = validateProviderConfig(config);
+      const request = buildTestRequest(safeConfig);
       const resp = await axios.post('http://localhost:3001/api/llm/proxy', {
         url: request.url,
         headers: request.headers,
@@ -133,6 +146,7 @@ export default function ConfigDrawer({ isOpen, onClose }) {
                   onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
                   placeholder="https://api.openai.com/v1"
                 />
+                <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">可依供應商文件自由調整 endpoint；公開 provider 請使用 HTTPS，本機 provider 可用 localhost HTTP。</p>
               </div>
 
               <div>
