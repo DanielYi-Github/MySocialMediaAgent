@@ -12,9 +12,15 @@ import {
   openLoginBrowser as igOpenLogin,
   publish as igPublish,
 } from './ig.js';
+import {
+  getAllowedProxyHosts,
+  getProxyErrorMessage,
+  validateProxyTarget,
+} from './proxy-security.js';
 
 const app = express();
 const PORT = 3001;
+const PROXY_ALLOWED_HOSTS = getAllowedProxyHosts(process.env.PROXY_ALLOWED_HOSTS);
 
 // Allow requests from the Vite dev server and built preview
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }));
@@ -47,28 +53,21 @@ app.post('/api/xhs/login', async (req, res) => {
 // method defaults to 'POST'; use 'GET' for status polling (data becomes query params)
 app.post('/api/llm/proxy', async (req, res) => {
   const { url, method = 'POST', headers, data } = req.body;
+  const normalizedMethod = String(method).toUpperCase();
   if (!url) return res.status(400).json({ error: 'Missing url' });
-  if (method === 'POST' && !data) return res.status(400).json({ error: 'Missing data' });
+  if (normalizedMethod === 'POST' && !data) return res.status(400).json({ error: 'Missing data' });
   try {
+    const target = validateProxyTarget({ url, method: normalizedMethod, allowedHosts: PROXY_ALLOWED_HOSTS });
     let response;
-    if (method === 'GET') {
-      response = await axios.get(url, { headers, params: data });
+    if (target.method === 'GET') {
+      response = await axios.get(target.url, { headers, params: data });
     } else {
-      response = await axios.post(url, data, { headers });
+      response = await axios.post(target.url, data, { headers });
     }
     res.json(response.data);
   } catch (err) {
-    const status = err.response?.status || 502;
-    let message = err.message;
-    if (err.response?.data) {
-      if (Array.isArray(err.response.data) && err.response.data[0]?.error?.message) {
-        message = err.response.data[0].error.message;
-      } else if (err.response.data.error?.message) {
-        message = err.response.data.error.message;
-      } else if (typeof err.response.data.error === 'string') {
-        message = err.response.data.error;
-      }
-    }
+    const status = err.response?.status || err.statusCode || 502;
+    const message = getProxyErrorMessage(err);
     res.status(status).json({ error: { message } });
   }
 });
