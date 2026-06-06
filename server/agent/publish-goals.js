@@ -23,5 +23,15 @@ export function buildInstagramPublishGoal({ caption, tmpFiles = [] }) {
 
 export function buildXhsPublishGoal({ title, content, tmpFiles = [] }) {
   const uploadInstruction = buildDirectUploadInstruction(tmpFiles);
-  return `請幫我完成完整的小紅書發文流程：\n1. 尋找發佈貼文或圖文上傳的區域。${uploadInstruction}\n3. 尋找標題輸入框，輸入：\n${title}\n4. 尋找內文輸入框，並輸入內容：\n${content}\n5. 最後點擊「发布」按鈕（通常在右側）完成發文。\n\n成功判斷：URL 跳轉到包含 "success" 的頁面，或看到發佈成功的提示。`;
+  return `請幫我完成小紅書發文表單的填寫流程：
+1. 尋找發佈貼文或圖文上傳的區域。${uploadInstruction}
+3. 尋找標題輸入框，輸入：
+${title}
+4. 尋找內文輸入框（div[role="textbox"] 或 contenteditable），先 click() 聚焦，再用 page.keyboard.type() 輸入內容（不要用 fill()）：
+${content}
+5. 填寫完成後，回傳 done。
+
+⚠️ 重要：不要嘗試點擊「发布」按鈕，也不要嘗試修改頁面 DOM。系統會自動處理發布。你只需要完成上傳和填寫，完成後回傳 done 即可。
+
+成功判斷：標題和內文都已成功填入。`;
 }

@@ -260,9 +260,13 @@ export async function executeStepWithTimeout(page, code, timeoutMs) {
 
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
   const fn = new AsyncFunction('page', code);
+  const codePromise = fn(page);
+  // Suppress unhandled rejection: when timeout fires first and codePromise later
+  // rejects (e.g. Playwright's internal 30s timeout), Node.js 15+ crashes without this.
+  codePromise.catch(() => {});
 
   try {
-    await Promise.race([fn(page), timeoutPromise]);
+    await Promise.race([codePromise, timeoutPromise]);
   } finally {
     clearTimeout(timeoutId);
   }

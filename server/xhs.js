@@ -6,6 +6,45 @@ import { healAndExecute } from './agent/heal-engine.js';
 import { runAgentLoop } from './agent/agent-loop.js';
 import { buildXhsPublishGoal } from './agent/publish-goals.js';
 
+// XHS limits hashtag topic text to 30 characters.
+// keyboard.type() fires keydown events, triggering XHS's topic-mode autocomplete on '#'.
+// When Enter/newline terminates topic mode, XHS may select an autocomplete suggestion
+// that's longer than 30 chars, OR merge consecutive hashtags into one overlong topic.
+// Fix: strip all hashtags from the body before the agent types it, then inject them
+// separately via page.keyboard.insertText() which fires only 'input' events (no keydown),
+// bypassing XHS's topic-mode activation entirely.
+function sanitizeXhsBody(text) {
+  if (!text) return text;
+  // Strip entire #hashtag tokens (keep body text only)
+  return text
+    .replace(/#\S+/g, '')
+    .replace(/ {2,}/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+function extractXhsHashtags(text) {
+  if (!text) return [];
+  // Extract valid hashtags (≤ 30 chars after #)
+  return (text.match(/#\S+/g) || [])
+    .filter(tag => tag.slice(1).length <= 30);
+}
+
+async function injectHashtagsViaInsertText(page, tags) {
+  if (!tags || tags.length === 0) return;
+  try {
+    // Focus the editor and move to end before injecting
+    const editor = page.locator('div[role="textbox"]').first();
+    await editor.click();
+    await page.keyboard.press('Control+End'); // absolute document end, not just line end
+    // insertText fires only 'input' events — no keydown '#', so XHS topic-mode never activates
+    await page.keyboard.insertText('\n' + tags.join(' '));
+    console.log(`XHS: Injected ${tags.length} hashtag(s) via insertText (topic-mode bypassed).`);
+  } catch (err) {
+    console.warn(`XHS: Hashtag injection failed: ${err.message}`);
+  }
+}
+
 // Persistent browser profile saves XHS login state across sessions
 const PROFILE_DIR = path.join(os.homedir(), '.mysocial-agent-xhs');
 
@@ -174,11 +213,181 @@ export async function publish({ title, content, images = [], llmConfig = null, f
 
     if (forceWebwright) {
       console.log('XHS: forceWebwright is true. Handing over to Agent Loop...');
-      const goal = buildXhsPublishGoal({ title, content, tmpFiles });
-      const result = await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, maxRounds: 3, stepTimeout: 15000, uploadFiles: tmpFiles });
-      await page.waitForTimeout(4000);
+      // Strip hashtags from body — agent types only clean body text via keyboard.type().
+      // Hashtags are injected separately via insertText to bypass XHS topic-mode autocomplete.
+      const bodyContent = sanitizeXhsBody(content);
+      const hashtags = extractXhsHashtags(content);
+      console.log(`XHS: Extracted ${hashtags.length} hashtag(s) for post-agent injection.`);
+      const goal = buildXhsPublishGoal({ title, content: bodyContent, tmpFiles });
+      try {
+        await runAgentLoop(page, goal, llmConfig, { maxSteps: 15, maxRounds: 1, stepTimeout: 15000, uploadFiles: tmpFiles });
+      } catch (agentErr) {
+        console.warn('XHS: Agent loop ended with error:', agentErr.message);
+        // Fall through to coordinate-based publish click below.
+      }
+
+      // Inject hashtags after agent finishes filling body content
+      await injectHashtagsViaInsertText(page, hashtags);
+
+      // If the agent successfully published, the URL will have changed away from /publish/publish.
+      await page.waitForTimeout(1000);
+      if (!page.url().includes('/publish/publish')) {
+        console.log('XHS: Agent loop published successfully (URL changed).');
+        setTimeout(() => browser.close().catch(() => {}), 5000);
+        return { success: true };
+      }
+
+      // The 发布 button lives inside <xhs-publish-btn> Web Component (Shadow DOM).
+      // page.evaluate() CAN pierce shadowRoot directly; Playwright locator click() hangs
+      // due to qiankun sandbox actionability checks.
+      console.log('XHS: Agent did not publish. Checking for validation errors before publish click...');
+
+      // Detect and fix form validation errors (e.g. "標籤字不能超過30字")
+      // before attempting to click publish — a blocked form will silently ignore all clicks.
+      const validationErrors = await page.evaluate(() => {
+        const found = [];
+        // Check for visible error messages
+        for (const el of document.querySelectorAll('[class*="error"], [class*="tip"], [class*="warn"], [class*="valid"]')) {
+          if (el.offsetParent !== null && el.textContent.trim()) {
+            found.push(el.textContent.trim().slice(0, 60));
+          }
+        }
+        // Also scan body text for known error phrases
+        const bodyText = document.body.innerText;
+        for (const phrase of ['不能超過', '超出字數', '字數超限', '不能為空', '已超過', '最多']) {
+          const idx = bodyText.indexOf(phrase);
+          if (idx !== -1) found.push(bodyText.slice(Math.max(0, idx - 8), idx + 25).trim());
+        }
+        return [...new Set(found)].filter(Boolean);
+      }).catch(() => []);
+
+      if (validationErrors.length > 0) {
+        console.warn('XHS: Validation errors detected:', JSON.stringify(validationErrors));
+        // Try to remove overlong tag elements from the contenteditable editor
+        const fixResult = await page.evaluate(() => {
+          let removed = 0;
+          for (const editor of document.querySelectorAll('[contenteditable="true"]')) {
+            // XHS renders inline topics/hashtags as inline elements (span/a) inside the editor.
+            // Remove any whose visible text (stripped of # marks) exceeds 25 chars.
+            for (const el of editor.querySelectorAll('span, a, b, strong')) {
+              const text = el.textContent.replace(/^#+|#+$/g, '').trim();
+              if (text.length > 25) {
+                el.remove();
+                removed++;
+              }
+            }
+            // Trigger an input event so the Vue/React state updates
+            editor.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+          return removed;
+        }).catch(() => 0);
+        console.log(`XHS: Removed ${fixResult} overlong tag element(s) from editor.`);
+        await page.waitForTimeout(500);
+      } else {
+        console.log('XHS: No validation errors detected.');
+      }
+
+      console.log('XHS: Attempting Shadow DOM click on xhs-publish-btn...');
+
+      // Blur any focused input so form validation fires before we click publish.
+      await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); }).catch(() => {});
+      await page.waitForTimeout(300);
+
+      let clickAttempted = false;
+
+      // Strategy 1: pierce Shadow DOM via evaluate (bypasses qiankun actionability)
+      try {
+        const shadowResult = await page.evaluate(() => {
+          const widget = document.querySelector('xhs-publish-btn');
+          if (!widget) return { ok: false, reason: 'widget not found' };
+          const root = widget.shadowRoot;
+          if (!root) return { ok: false, reason: 'no shadowRoot' };
+          // Find the non-disabled button (the 发布 one, not 暂存)
+          const btns = Array.from(root.querySelectorAll('button'));
+          const publishBtn = btns.find(b => !b.disabled && (b.textContent.includes('发布') || !b.textContent.includes('暂存')));
+          const target = publishBtn || btns[btns.length - 1];
+          if (!target) return { ok: false, reason: 'no button in shadowRoot', allBtns: btns.length };
+          target.click();
+          return { ok: true, text: target.textContent.trim(), disabled: target.disabled };
+        });
+        console.log('XHS: Shadow DOM click result:', JSON.stringify(shadowResult));
+        if (shadowResult.ok) clickAttempted = true;
+      } catch (shadowErr) {
+        console.warn('XHS: Shadow DOM click failed:', shadowErr.message);
+      }
+
+      // Strategy 2: coordinate-based mouse click (fallback)
+      if (!clickAttempted) {
+        try {
+          const publishWidget = page.locator('xhs-publish-btn').first();
+          await publishWidget.waitFor({ state: 'visible', timeout: 5000 });
+          const box = await publishWidget.boundingBox();
+          if (box) {
+            const centerY = box.y + box.height * 0.5;
+            console.log(`XHS: xhs-publish-btn box: x=${box.x} y=${box.y} w=${box.width} h=${box.height}`);
+            // 发布 is on the right; try right 60%–90% of the widget
+            for (const frac of [0.6, 0.7, 0.75, 0.8, 0.85]) {
+              const clickX = box.x + box.width * frac;
+              console.log(`XHS: Coordinate mouse.click at (${Math.round(clickX)}, ${Math.round(centerY)})`);
+              await page.mouse.click(clickX, centerY);
+              await page.waitForTimeout(200);
+            }
+            clickAttempted = true;
+          }
+        } catch (coordErr) {
+          console.error('XHS: Coordinate click failed:', coordErr.message);
+        }
+      }
+
+      // After clicking, dismiss any confirmation/terms dialog that may appear
+      await page.waitForTimeout(800);
+      const confirmSelectors = [
+        'button:has-text("确认发布")',
+        'button:has-text("确认")',
+        'button:has-text("确定")',
+        'button:has-text("同意")',
+        'button:has-text("知道了")',
+        'button:has-text("发布")',
+      ];
+      for (const sel of confirmSelectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 600 })) {
+            await btn.click();
+            console.log(`XHS: Confirmed post-publish dialog via "${sel}"`);
+            break;
+          }
+        } catch {}
+      }
+
+      // Verify publish success — URL navigates away from /publish/publish on success
+      let publishSuccess = false;
+      console.log(`XHS: Post-click URL: ${page.url()}`);
+      for (let i = 0; i < 12; i++) {
+        const url = page.url();
+        if (!url.includes('/publish/publish')) {
+          publishSuccess = true;
+          console.log(`XHS: Navigation detected — publish succeeded. URL: ${url}`);
+          break;
+        }
+        // Also check for in-page success indicator
+        const hasSuccessMsg = await page.evaluate(() =>
+          ['发布成功', '已发布', '发布中', '审核中'].some(t => document.body.innerText.includes(t))
+        ).catch(() => false);
+        if (hasSuccessMsg) {
+          publishSuccess = true;
+          console.log('XHS: In-page success message detected.');
+          break;
+        }
+        await page.waitForTimeout(1000);
+      }
+
+      if (!publishSuccess) {
+        console.warn(`XHS: Publish not confirmed after 12s. Final URL: ${page.url()}`);
+      }
+
       setTimeout(() => browser.close().catch(() => {}), 5000);
-      return result;
+      return { success: publishSuccess };
     }
 
     // Upload images if provided

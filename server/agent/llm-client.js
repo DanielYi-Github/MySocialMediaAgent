@@ -163,7 +163,7 @@ async function _callGeminiNative({ cleanBase, apiKey, model, userPrompt, screens
 
   const url = `${baseUrlWithoutOpenAI}/models/${model}:generateContent?key=${apiKey}`;
 
-  const parts = [{ text: userPrompt }];
+  const parts = [{ text: _sanitizeText(userPrompt) }];
   if (screenshotBase64) {
     const cleanBase64 = _cleanBase64Image(screenshotBase64);
     if (cleanBase64) {
@@ -212,13 +212,14 @@ async function _callOpenAICompatible({ cleanBase, apiKey, model, userPrompt, scr
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
 
   const cleanScreenshot = _cleanBase64Image(screenshotBase64);
+  const safePrompt = _sanitizeText(userPrompt);
 
   const userContent = cleanScreenshot
     ? [
-        { type: 'text', text: userPrompt },
+        { type: 'text', text: safePrompt },
         { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${cleanScreenshot}` } },
       ]
-    : userPrompt;
+    : safePrompt;
 
   const payload = {
     model,
@@ -255,12 +256,13 @@ async function _callAnthropicProtocol({ cleanBase, apiKey, model, userPrompt, sc
 
   const cleanScreenshot = _cleanBase64Image(screenshotBase64);
 
+  const safeAnthropicPrompt = _sanitizeText(userPrompt);
   const userContent = cleanScreenshot
     ? [
-        { type: 'text', text: userPrompt },
+        { type: 'text', text: safeAnthropicPrompt },
         { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: cleanScreenshot } },
       ]
-    : [{ type: 'text', text: userPrompt }];
+    : [{ type: 'text', text: safeAnthropicPrompt }];
 
   const payload = {
     model,
@@ -398,6 +400,14 @@ export function stripCodeFences(raw) {
 /**
  * Clean base64 image data to remove prefix and whitespace, supporting both String and Buffer types.
  */
+// Strips lone UTF-16 surrogates from a string. JavaScript strings can contain
+// lone surrogates (e.g. split emoji), but serde_json (Rust) rejects them as
+// invalid JSON — causing HTTP 400 "unexpected end of hex escape" from RTK proxy.
+function _sanitizeText(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+}
+
 function _cleanBase64Image(screenshotBase64) {
   if (!screenshotBase64) return null;
   let str = screenshotBase64;
