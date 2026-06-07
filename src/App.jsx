@@ -87,6 +87,37 @@ function inferAssetKindLabel(media) {
   return '未選擇素材';
 }
 
+function getWebwrightConfigForPlatform(platform, publishConfig = {}) {
+  if (platform === 'xhs') {
+    return {
+      visible: true,
+      field: 'forceWebwright_xhs',
+      label: '小紅書',
+      detail: '可切換使用 AI Webwright，或沿用原本固定的 Playwright 腳本。',
+    };
+  }
+
+  if (platform === 'facebook' && (publishConfig.fbAccountType || 'business') === 'personal') {
+    return {
+      visible: true,
+      field: 'forceWebwright_facebook',
+      label: 'Facebook 個人帳號',
+      detail: '可切換使用 AI Webwright，或沿用原本固定的 Playwright 腳本。',
+    };
+  }
+
+  if (platform === 'instagram' && (publishConfig.igAccountType || 'business') === 'personal') {
+    return {
+      visible: true,
+      field: 'forceWebwright_instagram',
+      label: 'Instagram 個人帳號',
+      detail: '可切換使用 AI Webwright，或沿用原本固定的 Playwright 腳本。',
+    };
+  }
+
+  return { visible: false };
+}
+
 function getAssetTypeFromMime(mime = '') {
   return mime.startsWith('video/') ? 'video' : 'image';
 }
@@ -435,6 +466,12 @@ function App() {
   const confirmedPlatforms = useMemo(
     () => Object.entries(confirmed).filter(([, value]) => value).map(([platform]) => platform),
     [confirmed],
+  );
+  const webwrightOptions = useMemo(
+    () => confirmedPlatforms
+      .map((platform) => ({ platform, ...getWebwrightConfigForPlatform(platform, publishConfig) }))
+      .filter((item) => item.visible),
+    [confirmedPlatforms, publishConfig],
   );
 
   const stepStatus = useMemo(() => {
@@ -1386,6 +1423,42 @@ function App() {
                       </div>
                     )}
                   </div>
+
+                  {webwrightOptions.length > 0 && (
+                    <div className="rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4 bg-white/50 dark:bg-slate-900/20 space-y-3">
+                      <div>
+                        <p className="font-bold text-sm">AI Webwright / 固定 Playwright</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          發布前可以直接選擇要使用 AI Webwright，或跑原本固定的 Playwright。
+                        </p>
+                      </div>
+                      <div className="space-y-3">
+                        {webwrightOptions.map((option) => {
+                          const enabled = publishConfig[option.field] || false;
+                          return (
+                            <label
+                              key={option.field}
+                              className="flex items-start justify-between gap-3 rounded-2xl border border-slate-200/70 dark:border-slate-800 px-4 py-3 cursor-pointer hover:border-indigo-300 transition"
+                            >
+                              <div>
+                                <p className="text-sm font-bold text-slate-800 dark:text-slate-100">{option.label}</p>
+                                <p className="text-xs text-slate-500 mt-1">{option.detail}</p>
+                                <p className="text-xs mt-2 text-slate-400">
+                                  目前選擇：{enabled ? 'AI Webwright' : '固定 Playwright'}
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                checked={enabled}
+                                onChange={(event) => handleCredsChange(option.field, event.target.checked)}
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <div className="rounded-2xl p-4 bg-amber-50/70 dark:bg-amber-950/20 border border-amber-100 dark:border-amber-900/40">
