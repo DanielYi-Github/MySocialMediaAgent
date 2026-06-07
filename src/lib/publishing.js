@@ -1,6 +1,8 @@
 import axios from 'axios';
 
 const PROXY = 'http://localhost:3001/api/llm/proxy';
+const THREADS_MAX_CAROUSEL_ITEMS = 20;
+const THREADS_MIN_CAROUSEL_ITEMS = 2;
 
 export function normalizeAssetsInput({ assets, imageDataUrls }) {
   if (Array.isArray(assets) && assets.length > 0) return assets;
@@ -31,6 +33,33 @@ export function classifyAssets(assets = []) {
   };
 }
 
+function hasValue(value) {
+  return typeof value === 'string' ? value.trim().length > 0 : Boolean(value);
+}
+
+function makeMissingField(field, label, setupSection) {
+  return { field, label, setupSection };
+}
+
+function getThreadsAccountConfig(publishConfig = {}) {
+  const threadsType = publishConfig.threadsAccountType ?? 'personal';
+  return {
+    threadsType,
+    tokenField: threadsType === 'business' ? 'threadsBusinessToken' : 'threadsToken',
+    userIdField: threadsType === 'business' ? 'threadsBusinessUserId' : 'threadsUserId',
+  };
+}
+
+function getThreadsCarouselCountError(assetCount) {
+  if (assetCount > THREADS_MAX_CAROUSEL_ITEMS) {
+    return `Threads carousel 最多支援 ${THREADS_MAX_CAROUSEL_ITEMS} 個素材，請減少後再發布。`;
+  }
+  if (assetCount > 1 && assetCount < THREADS_MIN_CAROUSEL_ITEMS) {
+    return `Threads carousel 至少需要 ${THREADS_MIN_CAROUSEL_ITEMS} 個素材。`;
+  }
+  return '';
+}
+
 export function getPlatformPublishSupport(platform, assets = [], publishConfig = {}) {
   const media = classifyAssets(assets);
   const fbType = publishConfig.fbAccountType || 'business';
@@ -41,49 +70,142 @@ export function getPlatformPublishSupport(platform, assets = [], publishConfig =
   }
 
   if (platform === 'xhs') {
-    if (!media.isImageOnly) {
-      return { canPublish: false, method: 'none', reason: '目前小紅書發布流程僅支援圖片素材。' };
-    }
-    return { canPublish: true, method: 'browser', reason: '透過瀏覽器自動化發布圖片筆記。' };
+    return { canPublish: true, method: 'browser', reason: media.hasMixedMedia ? '將透過瀏覽器自動化嘗試發布單篇圖片與影片混合筆記。' : '透過瀏覽器自動化發布筆記。' };
   }
 
   if (platform === 'facebook') {
     if (fbType === 'personal') {
-      if (media.hasMixedMedia) {
-        return { canPublish: false, method: 'none', reason: 'Facebook 個人帳號自動化目前不支援圖片與影片混合素材。' };
-      }
-      return { canPublish: true, method: 'browser', reason: media.isSingleVideo ? '將透過瀏覽器自動化發布單支影片。' : '將透過瀏覽器自動化發布圖片貼文。' };
+      return { canPublish: true, method: 'browser', reason: media.hasMixedMedia ? '將透過瀏覽器自動化嘗試發布單篇圖片與影片混合貼文。' : media.isSingleVideo ? '將透過瀏覽器自動化發布單支影片。' : '將透過瀏覽器自動化發布貼文。' };
     }
-    if (!media.isImageOnly) {
-      return { canPublish: false, method: 'none', reason: 'Facebook 粉專 API 目前僅接上圖片貼文。影片請改用個人帳號自動化或手動發布。' };
-    }
-    return { canPublish: true, method: 'api', reason: '將透過 Facebook Graph API 發布圖片貼文。' };
+    return { canPublish: true, method: 'api', reason: media.videoCount > 0 ? '將透過 Facebook Graph API 與 Cloudinary 發布影片或混合素材。' : '將透過 Facebook Graph API 發布圖片貼文。' };
   }
 
   if (platform === 'instagram') {
     if (igType === 'personal') {
-      if (media.hasMixedMedia) {
-        return { canPublish: false, method: 'none', reason: 'Instagram 個人帳號自動化目前不支援圖片與影片混合素材。' };
-      }
-      return { canPublish: true, method: 'browser', reason: media.isSingleVideo ? '將透過瀏覽器自動化發布單支影片。' : '將透過瀏覽器自動化發布圖片貼文。' };
+      return { canPublish: true, method: 'browser', reason: media.hasMixedMedia ? '將透過瀏覽器自動化嘗試發布單篇圖片與影片混合貼文。' : media.isSingleVideo ? '將透過瀏覽器自動化發布單支影片。' : '將透過瀏覽器自動化發布貼文。' };
     }
-    if (!media.isImageOnly) {
-      return { canPublish: false, method: 'none', reason: 'Instagram 商業帳號 API 目前僅接上圖片貼文。影片請改用個人帳號自動化或手動發布。' };
-    }
-    return { canPublish: true, method: 'api', reason: '將透過 Instagram Graph API 發布圖片貼文。' };
+    return { canPublish: true, method: 'api', reason: media.videoCount > 0 ? '將透過 Instagram Graph API carousel 與 Cloudinary 發布影片或混合素材。' : '將透過 Instagram Graph API 發布圖片貼文。' };
   }
 
   if (platform === 'threads') {
-    if (media.hasMixedMedia) {
-      return { canPublish: false, method: 'none', reason: 'Threads 目前不支援圖片與影片混合素材。' };
+    if (media.total > THREADS_MAX_CAROUSEL_ITEMS) {
+      return {
+        canPublish: false,
+        method: 'none',
+        reason: getThreadsCarouselCountError(media.total),
+      };
     }
-    if (media.isSingleVideo) {
-      return { canPublish: false, method: 'none', reason: 'Threads 影片發布尚未接上，目前請手動發布。' };
+    if (media.videoCount > 0) {
+      return {
+        canPublish: true,
+        method: 'api',
+        reason: media.total > 1
+          ? `將透過 Threads API carousel 與 Cloudinary 發布影片或混合素材（每次 ${THREADS_MIN_CAROUSEL_ITEMS}-${THREADS_MAX_CAROUSEL_ITEMS} 個素材）。`
+          : '將透過 Threads API 與 Cloudinary 發布單支影片。',
+      };
     }
-    return { canPublish: true, method: 'api', reason: media.imageCount > 0 ? '將透過 Threads API 發布圖片貼文。' : '將透過 Threads API 發布文字貼文。' };
+    return {
+      canPublish: true,
+      method: 'api',
+      reason: media.total > 1
+        ? `將透過 Threads API carousel 發布圖片貼文（每次 ${THREADS_MIN_CAROUSEL_ITEMS}-${THREADS_MAX_CAROUSEL_ITEMS} 張）。`
+        : '將透過 Threads API 發布單張圖片貼文。',
+    };
   }
 
   return { canPublish: false, method: 'none', reason: '此平台尚未定義發布規則。' };
+}
+
+export function getPublishRequirements(platform, assets = [], publishConfig = {}) {
+  const support = getPlatformPublishSupport(platform, assets, publishConfig);
+  const media = classifyAssets(assets);
+  const missingFields = [];
+  let setupSection = '';
+
+  if (!support.canPublish) {
+    return { ...support, missingFields, setupSection };
+  }
+
+  const requireField = (field, label, section) => {
+    if (!hasValue(publishConfig[field])) {
+      missingFields.push(makeMissingField(field, label, section));
+      setupSection ||= section;
+    }
+  };
+
+  if (platform === 'facebook' && (publishConfig.fbAccountType || 'business') !== 'personal') {
+    requireField('fbPageToken', 'Facebook Page Access Token', 'Facebook 設定');
+    requireField('fbPageId', 'Facebook Page ID', 'Facebook 設定');
+    if (media.videoCount > 0) {
+      requireField('cloudinaryCloudName', 'Cloudinary Cloud Name', 'Cloudinary 影片中轉設定');
+      requireField('cloudinaryUploadPreset', 'Cloudinary unsigned Upload Preset', 'Cloudinary 影片中轉設定');
+    } else if (media.imageCount > 0) {
+      requireField('imgbbKey', 'imgbb API Key', 'Instagram / 圖片中轉設定');
+    }
+  }
+
+  if (platform === 'instagram' && (publishConfig.igAccountType || 'business') !== 'personal') {
+    requireField('fbPageToken', 'Facebook Page Access Token', 'Facebook 設定');
+    requireField('igUserId', 'Instagram Business User ID', 'Instagram 設定');
+    if (media.videoCount > 0) {
+      requireField('cloudinaryCloudName', 'Cloudinary Cloud Name', 'Cloudinary 影片中轉設定');
+      requireField('cloudinaryUploadPreset', 'Cloudinary unsigned Upload Preset', 'Cloudinary 影片中轉設定');
+    } else if (media.imageCount > 0) {
+      requireField('imgbbKey', 'imgbb API Key', 'Instagram / 圖片中轉設定');
+    }
+  }
+
+  if (platform === 'threads') {
+    const { tokenField, userIdField } = getThreadsAccountConfig(publishConfig);
+    requireField(tokenField, 'Threads Access Token', 'Threads API 設定');
+    requireField(userIdField, 'Threads User ID', 'Threads API 設定');
+    const carouselCountError = getThreadsCarouselCountError(media.total);
+    if (carouselCountError) {
+      return {
+        ...support,
+        canPublish: false,
+        missingFields,
+        setupSection,
+        reason: carouselCountError,
+      };
+    }
+    if (media.videoCount > 0) {
+      requireField('cloudinaryCloudName', 'Cloudinary Cloud Name', 'Cloudinary 影片中轉設定');
+      requireField('cloudinaryUploadPreset', 'Cloudinary unsigned Upload Preset', 'Cloudinary 影片中轉設定');
+    } else if (media.imageCount > 0) {
+      requireField('imgbbKey', 'imgbb API Key', 'Instagram / 圖片中轉設定');
+    }
+  }
+
+  if (missingFields.length === 0) {
+    return { ...support, missingFields, setupSection };
+  }
+
+  const missingLabels = missingFields.map((item) => item.label).join('、');
+  const platformLabel = platform === 'threads'
+    ? 'Threads API'
+    : platform === 'instagram'
+      ? 'Instagram API'
+      : platform === 'facebook'
+        ? 'Facebook API'
+        : '發布';
+  const mediaLabel = media.hasMixedMedia ? '混合素材' : media.videoCount > 0 ? '影片' : '圖片';
+
+  return {
+    ...support,
+    canPublish: false,
+    missingFields,
+    setupSection,
+    reason: `${platformLabel} 發布${mediaLabel}需要 ${missingLabels}。請到「設定 > 發文設定 > ${setupSection}」填入。`,
+  };
+}
+
+export function resolvePublishTargets(confirmedPlatforms = [], selectedPublishTargets = {}) {
+  const platforms = confirmedPlatforms.filter((platform) => selectedPublishTargets[platform]);
+  if (platforms.length === 0) {
+    return { platforms: [], error: '請選擇本次發布平台。' };
+  }
+  return { platforms, error: '' };
 }
 
 function assetDataUrlToPayload(asset) {
@@ -114,12 +236,81 @@ function getAxiosErrorMessage(err) {
   return err.message || '請求失敗';
 }
 
+function buildThreadsUrl(threadsUserId, params = {}) {
+  const url = new URL(`https://graph.threads.net/v1.0/${threadsUserId}/threads`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === '') continue;
+    url.searchParams.set(key, String(value));
+  }
+  return url.toString();
+}
+
+function buildThreadsPublishUrl(threadsUserId, creationId) {
+  const url = new URL(`https://graph.threads.net/v1.0/${threadsUserId}/threads_publish`);
+  url.searchParams.set('creation_id', creationId);
+  return url.toString();
+}
+
+async function createThreadsContainer(threadsUserId, auth, params) {
+  return proxyPost(buildThreadsUrl(threadsUserId, params), {}, auth);
+}
+
+async function publishThreadsContainer(threadsUserId, auth, creationId) {
+  return proxyPost(buildThreadsPublishUrl(threadsUserId, creationId), {}, auth);
+}
+
 async function uploadImageToImgbb(imageDataUrl, imgbbKey) {
   const base64 = imageDataUrl.split(',')[1];
   const formData = new FormData();
   formData.append('image', base64);
   const response = await axios.post(`https://api.imgbb.com/1/upload?key=${encodeURIComponent(imgbbKey)}`, formData);
   return response.data.data.url;
+}
+
+function isVideoAsset(asset) {
+  return asset?.type === 'video' || asset?.mime?.startsWith('video/');
+}
+
+export async function uploadAssetToCloudinary(asset, { cloudinaryCloudName, cloudinaryUploadPreset } = {}) {
+  if (!cloudinaryCloudName || !cloudinaryUploadPreset) {
+    throw new Error('需要 Cloudinary Cloud Name 與 unsigned Upload Preset 才能透過 API 發布影片或混合素材。請在「API 憑證設定」填入。');
+  }
+  if (!asset?.sourceUrl) {
+    throw new Error('素材缺少可上傳的 sourceUrl。');
+  }
+
+  const formData = new FormData();
+  formData.append('file', asset.sourceUrl);
+  formData.append('upload_preset', cloudinaryUploadPreset);
+  const response = await axios.post(
+    `https://api.cloudinary.com/v1_1/${encodeURIComponent(cloudinaryCloudName)}/auto/upload`,
+    formData,
+  );
+
+  const secureUrl = response.data?.secure_url;
+  if (!secureUrl) throw new Error('Cloudinary 上傳失敗：回應缺少 secure_url。');
+  return secureUrl;
+}
+
+async function getPublicMediaAssets(assets, { imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset } = {}) {
+  const media = classifyAssets(assets);
+  const requiresCloudinary = media.videoCount > 0;
+
+  if (!requiresCloudinary && !imgbbKey && media.imageCount > 0) {
+    throw new Error('需要 imgbb API Key 才能發布圖片。請在「API 憑證設定」填入。');
+  }
+
+  const publicAssets = [];
+  for (const asset of assets) {
+    if (requiresCloudinary || isVideoAsset(asset)) {
+      const url = await uploadAssetToCloudinary(asset, { cloudinaryCloudName, cloudinaryUploadPreset });
+      publicAssets.push({ asset, url });
+    } else {
+      const url = await uploadImageToImgbb(asset.sourceUrl, imgbbKey);
+      publicAssets.push({ asset, url });
+    }
+  }
+  return publicAssets;
 }
 
 async function waitForContainer(containerId, apiBase, authHeaders) {
@@ -138,35 +329,63 @@ async function waitForContainer(containerId, apiBase, authHeaders) {
   throw new Error('Instagram 媒體容器等待逾時，請稍後重試。');
 }
 
-export async function postToFacebook({ pageId, pageToken, message, imageDataUrls = [], assets = [], imgbbKey }) {
-  const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
-  const media = classifyAssets(normalizedAssets);
-  if (!media.isImageOnly && media.total > 0) {
-    throw new Error('Facebook 粉專 API 目前僅支援圖片貼文。');
+async function waitForThreadsContainer(containerId, authHeaders) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const result = await proxyGet(
+      `https://graph.threads.net/v1.0/${containerId}`,
+      { fields: 'id,status,error_message' },
+      authHeaders,
+    );
+
+    if (result.status === 'FINISHED' || result.status === 'PUBLISHED') return;
+
+    if (result.status === 'ERROR' || result.status === 'EXPIRED') {
+      const detail = result.error_message ? `：${result.error_message}` : '';
+      throw new Error(`Threads 媒體容器處理失敗${detail}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 3000));
   }
-  const normalizedImageDataUrls = normalizedAssets.map((asset) => asset.sourceUrl);
 
-  if (normalizedImageDataUrls.length > 0) {
-    if (!imgbbKey) throw new Error('需要 imgbb API Key 才能在 Facebook 發布圖片。請在「API 憑證設定」填入 imgbb Key。');
+  throw new Error('Threads 影片容器等待逾時，請稍後重試。');
+}
 
-    if (normalizedImageDataUrls.length === 1) {
-      const imageUrl = await uploadImageToImgbb(normalizedImageDataUrls[0], imgbbKey);
+export async function postToFacebook({ pageId, pageToken, message, imageDataUrls = [], assets = [], imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset }) {
+  const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
+  const publicAssets = await getPublicMediaAssets(normalizedAssets, { imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset });
+
+  if (publicAssets.length > 0) {
+    if (publicAssets.length === 1 && !isVideoAsset(publicAssets[0].asset)) {
       return proxyPost(`https://graph.facebook.com/v20.0/${pageId}/photos`, {
-        url: imageUrl,
+        url: publicAssets[0].url,
         message,
         access_token: pageToken,
       });
     }
 
-    const attachedMedia = [];
-    for (const dataUrl of normalizedImageDataUrls) {
-      const imageUrl = await uploadImageToImgbb(dataUrl, imgbbKey);
-      const photo = await proxyPost(`https://graph.facebook.com/v20.0/${pageId}/photos`, {
-        url: imageUrl,
-        published: false,
+    if (publicAssets.length === 1 && isVideoAsset(publicAssets[0].asset)) {
+      return proxyPost(`https://graph.facebook.com/v20.0/${pageId}/videos`, {
+        file_url: publicAssets[0].url,
+        description: message,
         access_token: pageToken,
       });
-      attachedMedia.push({ media_fbid: photo.id });
+    }
+
+    const attachedMedia = [];
+    for (const item of publicAssets) {
+      const unpublished = isVideoAsset(item.asset)
+        ? await proxyPost(`https://graph.facebook.com/v20.0/${pageId}/videos`, {
+          file_url: item.url,
+          description: message,
+          published: false,
+          access_token: pageToken,
+        })
+        : await proxyPost(`https://graph.facebook.com/v20.0/${pageId}/photos`, {
+          url: item.url,
+          published: false,
+          access_token: pageToken,
+        });
+      attachedMedia.push({ media_fbid: unpublished.id });
     }
 
     return proxyPost(`https://graph.facebook.com/v20.0/${pageId}/feed`, {
@@ -182,20 +401,29 @@ export async function postToFacebook({ pageId, pageToken, message, imageDataUrls
   });
 }
 
-export async function postToInstagram({ igUserId, pageToken, caption, imageDataUrls = [], assets = [], imgbbKey }) {
+export async function postToInstagram({ igUserId, pageToken, caption, imageDataUrls = [], assets = [], imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset }) {
   const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
   const media = classifyAssets(normalizedAssets);
-  if (media.total === 0) throw new Error('Instagram 發文必須包含圖片。');
-  if (!media.isImageOnly) throw new Error('Instagram 商業帳號 API 目前僅支援圖片貼文。');
-  if (!imgbbKey) throw new Error('需要 imgbb API Key 才能發文到 Instagram。請在「API 憑證設定」填入。');
+  if (media.total === 0) throw new Error('Instagram 發文必須包含素材。');
 
   const auth = { Authorization: `Bearer ${pageToken}` };
-  const normalizedImageDataUrls = normalizedAssets.map((asset) => asset.sourceUrl);
+  const publicAssets = await getPublicMediaAssets(normalizedAssets, { imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset });
 
-  if (normalizedImageDataUrls.length === 1) {
-    const imageUrl = await uploadImageToImgbb(normalizedImageDataUrls[0], imgbbKey);
+  if (publicAssets.length === 1 && !isVideoAsset(publicAssets[0].asset)) {
     const mediaContainer = await proxyPost(`https://graph.facebook.com/v20.0/${igUserId}/media`, {
-      image_url: imageUrl,
+      image_url: publicAssets[0].url,
+      caption,
+    }, auth);
+    await waitForContainer(mediaContainer.id, 'https://graph.facebook.com/v20.0', auth);
+    return proxyPost(`https://graph.facebook.com/v20.0/${igUserId}/media_publish`, {
+      creation_id: mediaContainer.id,
+    }, auth);
+  }
+
+  if (publicAssets.length === 1 && isVideoAsset(publicAssets[0].asset)) {
+    const mediaContainer = await proxyPost(`https://graph.facebook.com/v20.0/${igUserId}/media`, {
+      media_type: 'REELS',
+      video_url: publicAssets[0].url,
       caption,
     }, auth);
     await waitForContainer(mediaContainer.id, 'https://graph.facebook.com/v20.0', auth);
@@ -205,12 +433,11 @@ export async function postToInstagram({ igUserId, pageToken, caption, imageDataU
   }
 
   const childrenIds = [];
-  for (const dataUrl of normalizedImageDataUrls) {
-    const imageUrl = await uploadImageToImgbb(dataUrl, imgbbKey);
-    const child = await proxyPost(`https://graph.facebook.com/v20.0/${igUserId}/media`, {
-      image_url: imageUrl,
-      is_carousel_item: true,
-    }, auth);
+  for (const item of publicAssets) {
+    const payload = isVideoAsset(item.asset)
+      ? { media_type: 'VIDEO', video_url: item.url, is_carousel_item: true }
+      : { image_url: item.url, is_carousel_item: true };
+    const child = await proxyPost(`https://graph.facebook.com/v20.0/${igUserId}/media`, payload, auth);
     childrenIds.push(child.id);
   }
 
@@ -228,20 +455,29 @@ export async function postToInstagram({ igUserId, pageToken, caption, imageDataU
   }, auth);
 }
 
-export async function postToInstagramPersonal({ igUserId, igToken, caption, imageDataUrls = [], assets = [], imgbbKey }) {
+export async function postToInstagramPersonal({ igUserId, igToken, caption, imageDataUrls = [], assets = [], imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset }) {
   const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
   const media = classifyAssets(normalizedAssets);
-  if (media.total === 0) throw new Error('Instagram 發文必須包含圖片。');
-  if (!media.isImageOnly) throw new Error('Instagram 專業帳號 API 目前僅支援圖片貼文。');
-  if (!imgbbKey) throw new Error('需要 imgbb API Key 才能發文到 Instagram。請在「API 憑證設定」填入。');
+  if (media.total === 0) throw new Error('Instagram 發文必須包含素材。');
 
   const auth = { Authorization: `Bearer ${igToken}` };
-  const normalizedImageDataUrls = normalizedAssets.map((asset) => asset.sourceUrl);
+  const publicAssets = await getPublicMediaAssets(normalizedAssets, { imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset });
 
-  if (normalizedImageDataUrls.length === 1) {
-    const imageUrl = await uploadImageToImgbb(normalizedImageDataUrls[0], imgbbKey);
+  if (publicAssets.length === 1 && !isVideoAsset(publicAssets[0].asset)) {
     const mediaContainer = await proxyPost(`https://graph.instagram.com/v20.0/${igUserId}/media`, {
-      image_url: imageUrl,
+      image_url: publicAssets[0].url,
+      caption,
+    }, auth);
+    await waitForContainer(mediaContainer.id, 'https://graph.instagram.com/v20.0', auth);
+    return proxyPost(`https://graph.instagram.com/v20.0/${igUserId}/media_publish`, {
+      creation_id: mediaContainer.id,
+    }, auth);
+  }
+
+  if (publicAssets.length === 1 && isVideoAsset(publicAssets[0].asset)) {
+    const mediaContainer = await proxyPost(`https://graph.instagram.com/v20.0/${igUserId}/media`, {
+      media_type: 'REELS',
+      video_url: publicAssets[0].url,
       caption,
     }, auth);
     await waitForContainer(mediaContainer.id, 'https://graph.instagram.com/v20.0', auth);
@@ -251,12 +487,11 @@ export async function postToInstagramPersonal({ igUserId, igToken, caption, imag
   }
 
   const childrenIds = [];
-  for (const dataUrl of normalizedImageDataUrls) {
-    const imageUrl = await uploadImageToImgbb(dataUrl, imgbbKey);
-    const child = await proxyPost(`https://graph.instagram.com/v20.0/${igUserId}/media`, {
-      image_url: imageUrl,
-      is_carousel_item: true,
-    }, auth);
+  for (const item of publicAssets) {
+    const payload = isVideoAsset(item.asset)
+      ? { media_type: 'VIDEO', video_url: item.url, is_carousel_item: true }
+      : { image_url: item.url, is_carousel_item: true };
+    const child = await proxyPost(`https://graph.instagram.com/v20.0/${igUserId}/media`, payload, auth);
     childrenIds.push(child.id);
   }
 
@@ -276,11 +511,6 @@ export async function postToInstagramPersonal({ igUserId, igToken, caption, imag
 
 export async function postToXhs({ title, content, imageDataUrls = [], assets = [], llmConfig = null, forceWebwright = false }) {
   const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
-  const media = classifyAssets(normalizedAssets);
-  if (!media.isImageOnly && media.total > 0) {
-    throw new Error('目前小紅書發布流程僅支援圖片素材。');
-  }
-
   const outgoingAssets = normalizedAssets.map(assetDataUrlToPayload);
   const res = await axios.post(
     'http://localhost:3001/api/xhs/publish',
@@ -290,67 +520,61 @@ export async function postToXhs({ title, content, imageDataUrls = [], assets = [
   return res.data;
 }
 
-export async function postToThreads({ threadsUserId, threadsToken, text, imageDataUrls = [], assets = [], imgbbKey }) {
+export async function postToThreads({ threadsUserId, threadsToken, text, imageDataUrls = [], assets = [], imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset }) {
   const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
   const media = classifyAssets(normalizedAssets);
-  if (media.hasMixedMedia) throw new Error('Threads 目前不支援圖片與影片混合素材。');
-  if (media.videoCount > 0) throw new Error('Threads 影片發布尚未接上，請先手動發布。');
+  const carouselCountError = getThreadsCarouselCountError(media.total);
+  if (carouselCountError) throw new Error(carouselCountError);
 
   const auth = { Authorization: `Bearer ${threadsToken}` };
-  const normalizedImageDataUrls = normalizedAssets.map((asset) => asset.sourceUrl);
+  const publicAssets = await getPublicMediaAssets(normalizedAssets, { imgbbKey, cloudinaryCloudName, cloudinaryUploadPreset });
 
-  if (normalizedImageDataUrls.length === 0) {
-    const container = await proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads`, {
+  if (publicAssets.length === 0) {
+    const container = await createThreadsContainer(threadsUserId, auth, {
       text,
       media_type: 'TEXT',
-    }, auth);
-    return proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads_publish`, {
-      creation_id: container.id,
-    }, auth);
+    });
+    return publishThreadsContainer(threadsUserId, auth, container.id);
   }
 
-  if (normalizedImageDataUrls.length === 1) {
-    if (!imgbbKey) throw new Error('需要 imgbb API Key 才能在 Threads 發布圖片。請在「API 憑證設定」填入。');
-    const imageUrl = await uploadImageToImgbb(normalizedImageDataUrls[0], imgbbKey);
-    const container = await proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads`, {
+  if (publicAssets.length === 1) {
+    const item = publicAssets[0];
+    const container = await createThreadsContainer(threadsUserId, auth, {
       text,
-      media_type: 'IMAGE',
-      image_url: imageUrl,
-    }, auth);
-    return proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads_publish`, {
-      creation_id: container.id,
-    }, auth);
+      media_type: isVideoAsset(item.asset) ? 'VIDEO' : 'IMAGE',
+      [isVideoAsset(item.asset) ? 'video_url' : 'image_url']: item.url,
+    });
+    if (isVideoAsset(item.asset)) {
+      await waitForThreadsContainer(container.id, auth);
+    }
+    return publishThreadsContainer(threadsUserId, auth, container.id);
   }
 
-  if (!imgbbKey) throw new Error('需要 imgbb API Key 才能在 Threads 發布圖片。請在「API 憑證設定」填入。');
   const childrenIds = [];
-  for (const dataUrl of normalizedImageDataUrls) {
-    const imageUrl = await uploadImageToImgbb(dataUrl, imgbbKey);
-    const child = await proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads`, {
-      media_type: 'IMAGE',
-      image_url: imageUrl,
+  for (const item of publicAssets) {
+    const child = await createThreadsContainer(threadsUserId, auth, {
+      media_type: isVideoAsset(item.asset) ? 'VIDEO' : 'IMAGE',
+      [isVideoAsset(item.asset) ? 'video_url' : 'image_url']: item.url,
       is_carousel_item: true,
-    }, auth);
+    });
     childrenIds.push(child.id);
+
+    if (isVideoAsset(item.asset)) {
+      await waitForThreadsContainer(child.id, auth);
+    }
   }
 
-  const container = await proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads`, {
+  const container = await createThreadsContainer(threadsUserId, auth, {
     media_type: 'CAROUSEL',
-    children: childrenIds,
+    children: childrenIds.join(','),
     text,
-  }, auth);
-  return proxyPost(`https://graph.threads.net/v1.0/${threadsUserId}/threads_publish`, {
-    creation_id: container.id,
-  }, auth);
+  });
+  await waitForThreadsContainer(container.id, auth);
+  return publishThreadsContainer(threadsUserId, auth, container.id);
 }
 
 export async function postToFacebookPersonal({ caption, imageDataUrls = [], assets = [], llmConfig = null, forceWebwright = false }) {
   const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
-  const media = classifyAssets(normalizedAssets);
-  if (media.hasMixedMedia) {
-    throw new Error('Facebook 個人帳號自動化目前不支援圖片與影片混合素材。');
-  }
-
   const outgoingAssets = normalizedAssets.map(assetDataUrlToPayload);
   try {
     const resp = await axios.post(
@@ -368,7 +592,6 @@ export async function postToInstagramBrowser({ caption, imageDataUrls = [], asse
   const normalizedAssets = normalizeAssetsInput({ assets, imageDataUrls });
   const media = classifyAssets(normalizedAssets);
   if (media.total === 0) throw new Error('Instagram 發文必須包含素材。');
-  if (media.hasMixedMedia) throw new Error('Instagram 個人帳號自動化目前不支援圖片與影片混合素材。');
 
   const outgoingAssets = normalizedAssets.map(assetDataUrlToPayload);
   try {

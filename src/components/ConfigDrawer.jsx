@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Settings, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import {
@@ -21,16 +21,23 @@ const DEFAULT_PUBLISH_CONFIG = {
   fbPageId: '',
   igUserId: '',
   imgbbKey: '',
+  threadsAccountType: 'personal',
+  threadsToken: '',
+  threadsUserId: '',
+  threadsBusinessToken: '',
+  threadsBusinessUserId: '',
+  cloudinaryCloudName: '',
+  cloudinaryUploadPreset: '',
 };
 
-export default function ConfigDrawer({ isOpen, onClose, onSaved, onProbeUpdated }) {
+export default function ConfigDrawer({ isOpen, onClose, onSaved, onProbeUpdated, initialTab = 'llm' }) {
   const [config, setConfig] = useState(() => {
     const saved = localStorage.getItem('llm_config');
     return saved ? normalizeConfig(JSON.parse(saved)) : getDefaultConfig();
   });
   const [publishConfig, setPublishConfig] = useState(() => {
     const savedPublish = localStorage.getItem('publish_config');
-    return savedPublish ? JSON.parse(savedPublish) : DEFAULT_PUBLISH_CONFIG;
+    return savedPublish ? { ...DEFAULT_PUBLISH_CONFIG, ...JSON.parse(savedPublish) } : DEFAULT_PUBLISH_CONFIG;
   });
   const [connectionStatus, setConnectionStatus] = useState('idle');
   const [probeStatus, setProbeStatus] = useState('idle');
@@ -49,6 +56,10 @@ export default function ConfigDrawer({ isOpen, onClose, onSaved, onProbeUpdated 
   const [capabilityProbeError, setCapabilityProbeError] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [tab, setTab] = useState('llm'); // 'llm' | 'publish'
+
+  useEffect(() => {
+    if (isOpen) setTab(initialTab);
+  }, [initialTab, isOpen]);
 
   const handleSave = () => {
     try {
@@ -346,7 +357,7 @@ export default function ConfigDrawer({ isOpen, onClose, onSaved, onProbeUpdated 
                   <div>
                     <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">
                       imgbb API Key
-                      <span className="ml-1 text-amber-500">（Instagram 發圖必填）</span>
+                      <span className="ml-1 text-amber-500">（純圖片 API 發布必填）</span>
                     </label>
                     <input
                       type="password"
@@ -356,9 +367,147 @@ export default function ConfigDrawer({ isOpen, onClose, onSaved, onProbeUpdated 
                       placeholder="從 imgbb.com 免費取得"
                     />
                     <p className="mt-0.5 text-[10px] text-slate-400">
-                      Instagram API 需要圖片公開 URL，用 imgbb 中轉。免費申請：
+                      純圖片 API 發布可用 imgbb 中轉公開 URL。免費申請：
                       <a href="https://imgbb.com/api" target="_blank" rel="noopener noreferrer" className="text-indigo-500 underline ml-0.5">imgbb.com/api</a>
                     </p>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span className="w-5 h-5 bg-black text-white text-[10px] font-bold flex items-center justify-center rounded-full">T</span>
+                  Threads API 設定
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">帳號型態</label>
+                    <div className="flex gap-2">
+                      {['personal', 'business'].map((type) => (
+                        <button
+                          type="button"
+                          key={type}
+                          onClick={() => setPublishConfig({ ...publishConfig, threadsAccountType: type })}
+                          className={`px-3 py-2 rounded-lg text-xs border ${
+                            (publishConfig.threadsAccountType || 'personal') === type
+                              ? 'bg-indigo-600 text-white border-indigo-600'
+                              : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300'
+                          }`}
+                        >
+                          {type === 'personal' ? '個人帳號' : '商業帳號'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {(publishConfig.threadsAccountType || 'personal') === 'business' ? (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">Threads Business Access Token</label>
+                        <input
+                          type="password"
+                          className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-xs"
+                          value={publishConfig.threadsBusinessToken}
+                          onChange={(e) => setPublishConfig({ ...publishConfig, threadsBusinessToken: e.target.value })}
+                          placeholder="THQWJRxxxxxx..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">Threads Business User ID</label>
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-xs"
+                          value={publishConfig.threadsBusinessUserId}
+                          onChange={(e) => setPublishConfig({ ...publishConfig, threadsBusinessUserId: e.target.value })}
+                          placeholder="1234567890"
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">Threads Access Token</label>
+                        <input
+                          type="password"
+                          className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-xs"
+                          value={publishConfig.threadsToken}
+                          onChange={(e) => setPublishConfig({ ...publishConfig, threadsToken: e.target.value })}
+                          placeholder="THQWJRxxxxxx..."
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">Threads User ID</label>
+                        <input
+                          type="text"
+                          className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-xs"
+                          value={publishConfig.threadsUserId}
+                          onChange={(e) => setPublishConfig({ ...publishConfig, threadsUserId: e.target.value })}
+                          placeholder="1234567890"
+                        />
+                      </div>
+                    </>
+                  )}
+
+                  <details className="rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-xs text-slate-500 dark:text-slate-400">
+                    <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-200">Threads Token / User ID 取得指引</summary>
+                    <div className="mt-2 space-y-1.5 leading-relaxed">
+                      <p>1. 到 Meta for Developers 建立或選擇 App，加入 Threads API 或 Threads use case。</p>
+                      <p>2. 到 Graph API Explorer，右上角主機選擇 graph.threads.net，勾選 threads_basic 與 threads_content_publish。</p>
+                      <p>3. 產生 Access Token 後，在 Explorer 呼叫 /me 取得 id，填入 Threads User ID。</p>
+                      <p>4. 純圖片貼文需要 imgbb 公開圖片網址；單支影片或混合素材需要 Cloudinary 公開媒體網址。</p>
+                      <p>5. 多素材會走 Threads carousel，單次需介於 2-20 個素材。</p>
+                      <p>
+                        入口：
+                        <a href="https://developers.facebook.com/tools/explorer" target="_blank" rel="noopener noreferrer" className="text-indigo-500 underline ml-1">Graph API Explorer</a>
+                      </p>
+                    </div>
+                  </details>
+                </div>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold mb-3 text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <span className="w-5 h-5 bg-sky-600 text-white text-[10px] font-bold flex items-center justify-center rounded">cl</span>
+                  Cloudinary 影片中轉設定
+                </h3>
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">Cloud Name</label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-xs"
+                      value={publishConfig.cloudinaryCloudName}
+                      onChange={(e) => setPublishConfig({ ...publishConfig, cloudinaryCloudName: e.target.value })}
+                      placeholder="your-cloud-name"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1 text-slate-600 dark:text-slate-400">
+                      Unsigned Upload Preset
+                      <span className="ml-1 text-amber-500">（API 發影片或混合素材必填）</span>
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-xs"
+                      value={publishConfig.cloudinaryUploadPreset}
+                      onChange={(e) => setPublishConfig({ ...publishConfig, cloudinaryUploadPreset: e.target.value })}
+                      placeholder="unsigned-upload-preset"
+                    />
+                    <p className="mt-0.5 text-[10px] text-slate-400">
+                      API 發布影片需要公開 HTTPS URL；請使用 unsigned upload preset，不要在前端放 API Secret。
+                    </p>
+                    <details className="mt-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3 text-xs text-slate-500 dark:text-slate-400">
+                      <summary className="cursor-pointer font-semibold text-slate-700 dark:text-slate-200">Cloudinary Cloud Name / Upload Preset 取得指引</summary>
+                      <div className="mt-2 space-y-1.5 leading-relaxed">
+                        <p>1. 到 Cloudinary Dashboard 複製 Cloud Name。</p>
+                        <p>2. 到 Settings / Upload / Upload presets 建立 unsigned preset。</p>
+                        <p>3. 只填 preset name，不要在前端填 API Secret。</p>
+                        <p>
+                          入口：
+                          <a href="https://cloudinary.com/console" target="_blank" rel="noopener noreferrer" className="text-indigo-500 underline ml-1">Cloudinary Console</a>
+                        </p>
+                      </div>
+                    </details>
                   </div>
                 </div>
               </div>

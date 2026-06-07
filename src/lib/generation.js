@@ -24,9 +24,9 @@ const SYSTEM_PROMPT = `你是一個擁有十年社群媒體操盤經驗的品牌
   - 技巧：有起承轉合，提到讓人印象深刻的細節或感受。
 
 ▸ Threads
-  - 語氣：超短、輕盈，像即時發出的碎念或一句讓人想按愛心的金句。
-  - 篇幅：1-2 句話 + 2-3 個 hashtag。
-  - 技巧：可用反差感、哲理感，或一個有趣的觀察。
+  - 語氣：短句、輕盈、即時感，像剛想到的一句觀察或自然碎念。
+  - 篇幅：1-2 句話，可帶 0-2 個 hashtag；不要為了塞標籤而破壞自然語感。
+  - 技巧：優先保留一句話的記憶點，可用反差感、哲理感或有趣觀察。
 
 【輸出規則】
 - 只回傳 JSON，不要附帶任何 markdown 或說明文字。
@@ -42,7 +42,7 @@ const SYSTEM_PROMPT = `你是一個擁有十年社群媒體操盤經驗的品牌
     "instagram": { "content": "非空字串，含 hashtag" },
     "xhs": { "content": "非空字串，含 emoji 和 hashtag" },
     "facebook": { "content": "非空字串，含 hashtag" },
-    "threads": { "content": "非空字串，含 hashtag" }
+    "threads": { "content": "非空字串，可含少量 hashtag" }
   }
 }`;
 

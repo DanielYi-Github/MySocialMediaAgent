@@ -35,6 +35,7 @@ import {
 } from './lib/providers';
 import {
   classifyAssets,
+  getPublishRequirements,
   getPlatformPublishSupport,
   postToFacebook,
   postToFacebookPersonal,
@@ -42,6 +43,7 @@ import {
   postToInstagramBrowser,
   postToThreads,
   postToXhs,
+  resolvePublishTargets,
 } from './lib/publishing';
 
 const STEPS = [
@@ -143,6 +145,76 @@ function extractRequestErrorMessage(err) {
   }
   if (responseData && typeof responseData === 'object') return JSON.stringify(responseData);
   return err.message || '未知錯誤';
+}
+
+function formatPublishErrorMessage(platform, err, assets = [], publishConfig = {}) {
+  const rawMsg = extractRequestErrorMessage(err) || '發布失敗';
+  if (platform !== 'threads') return rawMsg;
+
+  const media = classifyAssets(assets);
+  const threadsType = publishConfig.threadsAccountType ?? 'personal';
+  const token = threadsType === 'business' ? publishConfig.threadsBusinessToken : publishConfig.threadsToken;
+  const userId = threadsType === 'business' ? publishConfig.threadsBusinessUserId : publishConfig.threadsUserId;
+  const hasInvalidParameter = /invalid parameter/i.test(rawMsg);
+  const hasPermissionError = /permission|oauth|access token|unauthorized|forbidden/i.test(rawMsg);
+  const hasUserLookupError = /unsupported post request|unknown path|object with id|user/i.test(rawMsg);
+  const hasMissingResourceError = /requested resource does not exist|resource does not exist|does not exist|cannot be found/i.test(rawMsg);
+  const mediaLabel = media.hasMixedMedia
+    ? '圖片 + 影片混合 carousel'
+    : media.videoCount > 1
+      ? '多影片 carousel'
+      : media.imageCount > 1
+        ? '多圖片 carousel'
+        : media.isSingleVideo
+          ? '單支影片'
+          : media.imageCount === 1
+            ? '單張圖片'
+            : '純文字';
+
+  if (hasPermissionError) {
+    return `Threads 發布失敗：權限或憑證可能有問題。請檢查 Access Token 是否過期、是否勾選 threads_basic / threads_content_publish，以及 Token 與 User ID 是否屬於同一個 Threads 帳號。原始錯誤：${rawMsg}`;
+  }
+
+  if (hasUserLookupError) {
+    return `Threads 發布失敗：Threads User ID 或 API 路徑可能不正確。請重新用 Graph API Explorer 對 graph.threads.net 執行 /me 取得 id，並確認目前填入的 Token 與 User ID 來自同一個帳號。原始錯誤：${rawMsg}`;
+  }
+
+  if (hasMissingResourceError) {
+    if (media.isSingleVideo) {
+      return `Threads 發布失敗：Threads 找不到這次單支影片請求的資源。這通常不是影片內容本身，而是 Threads User ID、Access Token、API host，或 media container 發布階段不一致。請檢查 1. Graph API Explorer 主機是否選 graph.threads.net 2. 用目前 Token 執行 GET /me 回來的 id 是否等於設定中的 Threads User ID 3. Token 是否是 Threads token，不是 Facebook / Instagram token 4. Token 是否具備 threads_basic 與 threads_content_publish。原始錯誤：${rawMsg}`;
+    }
+
+    return `Threads 發布失敗：Threads 找不到這次 ${mediaLabel} 請求的資源。請檢查 Threads User ID 是否由 graph.threads.net 的 GET /me 取得、Token 與 User ID 是否屬於同一帳號、Token 是否仍有效，以及這次建立的 media container 是否能被同一個 Token 發布。原始錯誤：${rawMsg}`;
+  }
+
+  if (hasInvalidParameter) {
+    if (!token || !userId) {
+      return `Threads 發布失敗：缺少 Threads Access Token 或 Threads User ID。請先到「設定 > 發文設定 > Threads API 設定」補齊。原始錯誤：${rawMsg}`;
+    }
+
+    if (media.total > 20) {
+      return `Threads 發布失敗：這次素材共有 ${media.total} 個，超過 Threads carousel 上限 20 個。請減少素材數量後再試。原始錯誤：${rawMsg}`;
+    }
+
+    if (media.total > 1) {
+      const deliveryHint = media.videoCount > 0
+        ? '請優先檢查 Cloudinary 產生的 image/video URL 是否為可直接公開存取的原始檔案網址。'
+        : '請優先檢查圖片 URL 是否為可直接公開存取的原始檔案網址。';
+      return `Threads 發布失敗：這次走的是 ${mediaLabel}。錯誤多半出在 carousel 參數或素材網址格式。請檢查 1. 素材數是否介於 2-20 個 2. 每個素材網址是否能直接開啟 3. Token / User ID 是否屬於同一帳號。${deliveryHint} 原始錯誤：${rawMsg}`;
+    }
+
+    if (media.isSingleVideo) {
+      return `Threads 發布失敗：這次走的是單支影片。錯誤多半出在 video_url 參數或 Cloudinary 公開網址不可直接存取。請檢查 Cloudinary 連結是否可直接打開影片檔，以及 Token / User ID 是否正確。原始錯誤：${rawMsg}`;
+    }
+
+    if (media.imageCount === 1) {
+      return `Threads 發布失敗：這次走的是單張圖片。錯誤多半出在 image_url 參數或圖片網址不可直接存取。請檢查 imgbb 圖片連結是否可直接開啟原圖，並確認圖片不是私有或暫時失效網址。原始錯誤：${rawMsg}`;
+    }
+
+    return `Threads 發布失敗：這次走的是純文字貼文。錯誤多半出在 Threads Token、User ID，或 TEXT container 參數。請確認 Token / User ID 來自同一帳號，且 Token 仍有效。原始錯誤：${rawMsg}`;
+  }
+
+  return `Threads 發布失敗：${rawMsg}`;
 }
 
 function deepCloneRequest(request) {
@@ -434,6 +506,8 @@ function App() {
   const [publishStatus, setPublishStatus] = useState({});
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishConfig, setPublishConfig] = useState(loadPublishConfig);
+  const [selectedPublishTargets, setSelectedPublishTargets] = useState({});
+  const [configInitialTab, setConfigInitialTab] = useState('llm');
   const [promptPreview, setPromptPreview] = useState({
     isOpen: false,
     scope: 'all',
@@ -467,12 +541,26 @@ function App() {
     () => Object.entries(confirmed).filter(([, value]) => value).map(([platform]) => platform),
     [confirmed],
   );
+  const confirmedPlatformsKey = confirmedPlatforms.join('|');
+  const resolvedPublishTargets = useMemo(
+    () => resolvePublishTargets(confirmedPlatforms, selectedPublishTargets),
+    [confirmedPlatforms, selectedPublishTargets],
+  );
+  const selectedPublishPlatforms = resolvedPublishTargets.platforms;
   const webwrightOptions = useMemo(
     () => confirmedPlatforms
       .map((platform) => ({ platform, ...getWebwrightConfigForPlatform(platform, publishConfig) }))
       .filter((item) => item.visible),
     [confirmedPlatforms, publishConfig],
   );
+
+  useEffect(() => {
+    if (confirmedPlatforms.length === 1) {
+      setSelectedPublishTargets({ [confirmedPlatforms[0]]: true });
+    } else {
+      setSelectedPublishTargets({});
+    }
+  }, [confirmedPlatformsKey]);
 
   const stepStatus = useMemo(() => {
     const canConfigure = Boolean(safeReadyConfig);
@@ -497,6 +585,11 @@ function App() {
       localStorage.setItem('publish_config', JSON.stringify(next));
       return next;
     });
+  }, []);
+
+  const openPublishSettings = useCallback(() => {
+    setConfigInitialTab('publish');
+    setIsConfigOpen(true);
   }, []);
 
   const resolveLlmConfig = useCallback(({ requireApiKey = true } = {}) => {
@@ -942,10 +1035,36 @@ function App() {
 
   const handlePublish = async () => {
     const llmConfig = getOptionalReadyLlmConfig(localStorage);
+    const targetResolution = resolvePublishTargets(confirmedPlatforms, selectedPublishTargets);
+    if (targetResolution.error) {
+      setPublishStatus((prev) => ({
+        ...prev,
+        __global: { status: 'blocked', message: targetResolution.error },
+      }));
+      return;
+    }
+
+    const requirementEntries = targetResolution.platforms.map((platform) => [
+      platform,
+      getPublishRequirements(platform, assets, publishConfig),
+    ]);
+    const blockedEntries = requirementEntries.filter(([, requirements]) => !requirements.canPublish);
+    if (blockedEntries.length > 0) {
+      setPublishStatus((prev) => {
+        const next = { ...prev };
+        blockedEntries.forEach(([platform, requirements]) => {
+          next[platform] = { status: 'blocked', message: requirements.reason };
+        });
+        next.__global = { status: 'blocked', message: '請先補齊本次發布平台的必要設定，再開始發布。' };
+        return next;
+      });
+      return;
+    }
+
     setIsPublishing(true);
 
-    for (const platform of confirmedPlatforms) {
-      const support = getPlatformPublishSupport(platform, assets, publishConfig);
+    for (const platform of targetResolution.platforms) {
+      const support = getPublishRequirements(platform, assets, publishConfig);
       if (!support.canPublish) {
         setPublishStatus((prev) => ({
           ...prev,
@@ -976,6 +1095,8 @@ function App() {
               message: results.drafts.facebook,
               assets,
               imgbbKey: publishConfig.imgbbKey,
+              cloudinaryCloudName: publishConfig.cloudinaryCloudName,
+              cloudinaryUploadPreset: publishConfig.cloudinaryUploadPreset,
             });
           }
         } else if (platform === 'instagram') {
@@ -997,6 +1118,8 @@ function App() {
               caption: results.drafts.instagram,
               assets,
               imgbbKey: publishConfig.imgbbKey,
+              cloudinaryCloudName: publishConfig.cloudinaryCloudName,
+              cloudinaryUploadPreset: publishConfig.cloudinaryUploadPreset,
             });
           }
         } else if (platform === 'threads') {
@@ -1010,6 +1133,8 @@ function App() {
             text: results.drafts.threads,
             assets,
             imgbbKey: publishConfig.imgbbKey,
+            cloudinaryCloudName: publishConfig.cloudinaryCloudName,
+            cloudinaryUploadPreset: publishConfig.cloudinaryUploadPreset,
           });
         } else if (platform === 'xhs') {
           const content = results.drafts.xhs;
@@ -1028,7 +1153,7 @@ function App() {
           [platform]: { status: 'success', message: '發布成功！' },
         }));
       } catch (err) {
-        const msg = extractRequestErrorMessage(err) || '發布失敗';
+        const msg = formatPublishErrorMessage(platform, err, assets, publishConfig);
         setPublishStatus((prev) => ({
           ...prev,
           [platform]: { status: 'error', message: msg },
@@ -1060,7 +1185,10 @@ function App() {
           </div>
         </div>
         <button
-          onClick={() => setIsConfigOpen(true)}
+          onClick={() => {
+            setConfigInitialTab('llm');
+            setIsConfigOpen(true);
+          }}
           className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800/80 rounded-xl transition-all duration-200 border border-transparent hover:border-slate-200/60 dark:hover:border-slate-700/60"
         >
           <Settings className="w-5 h-5 text-slate-600 dark:text-slate-300" />
@@ -1108,7 +1236,10 @@ function App() {
                       </p>
                     </div>
                     <button
-                      onClick={() => setIsConfigOpen(true)}
+                      onClick={() => {
+                        setConfigInitialTab('llm');
+                        setIsConfigOpen(true);
+                      }}
                       className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold"
                     >
                       開啟設定
@@ -1320,7 +1451,7 @@ function App() {
                           : 'bg-slate-900 text-white hover:bg-slate-800'
                       }`}
                     >
-                      {confirmed[activePlatform] ? '已確認，可再點一次取消' : '確認此平台草稿'}
+                      {confirmed[activePlatform] ? '已加入發布佇列，可再點一次移除' : '加入發布佇列'}
                     </button>
                   </div>
                 </div>
@@ -1334,22 +1465,101 @@ function App() {
                     <div>
                       <h3 className="m-0 text-lg font-bold">發布前總結</h3>
                       <p className="text-sm text-slate-500 mt-1">
-                        已確認 {confirmedPlatforms.length} 個平台 · 素材型別：{inferAssetKindLabel(mediaSummary)}
+                        發布佇列 {confirmedPlatforms.length} 個平台 · 本次選取 {selectedPublishPlatforms.length} 個 · 素材型別：{inferAssetKindLabel(mediaSummary)}
                       </p>
                     </div>
                     <button
                       onClick={handlePublish}
-                      disabled={isPublishing || confirmedPlatforms.length === 0}
+                      disabled={isPublishing || selectedPublishPlatforms.length === 0}
                       className="px-6 py-3 rounded-2xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-700 hover:to-purple-700 disabled:from-slate-300 disabled:to-slate-300 text-white font-bold flex items-center gap-2"
                     >
                       {isPublishing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                      {isPublishing ? '發布中...' : '開始發布'}
+                      {isPublishing ? '發布中...' : `開始發布 ${selectedPublishPlatforms.length} 個平台`}
                     </button>
+                  </div>
+
+                  {publishStatus.__global && (
+                    <InlineAlert
+                      type={publishStatus.__global.status === 'blocked' ? 'warning' : 'info'}
+                      message={publishStatus.__global.message}
+                    />
+                  )}
+
+                  {confirmedPlatforms.length > 1 && selectedPublishPlatforms.length === 0 && (
+                    <InlineAlert type="warning" message="你已將多個平台加入發布佇列。請先勾選本次要發布的平台，系統只會執行被勾選的平台。" />
+                  )}
+
+                  <div className="rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4 bg-white/50 dark:bg-slate-900/20 space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2">
+                      <div>
+                        <p className="font-bold text-sm">本次發布目標</p>
+                        <p className="text-xs text-slate-500 mt-1">草稿加入發布佇列後，仍需在這裡勾選本次真正要發布的平台。</p>
+                      </div>
+                      <span className="text-xs text-slate-400">已選 {selectedPublishPlatforms.length} / {confirmedPlatforms.length}</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {confirmedPlatforms.map((platform) => {
+                        const requirements = getPublishRequirements(platform, assets, publishConfig);
+                        const selected = Boolean(selectedPublishTargets[platform]);
+                        return (
+                          <label
+                            key={platform}
+                            className={`flex items-start gap-3 rounded-2xl border px-4 py-3 cursor-pointer transition ${
+                              selected
+                                ? 'border-indigo-500 bg-indigo-50/60 dark:bg-indigo-950/30'
+                                : 'border-slate-200/70 dark:border-slate-800 hover:border-indigo-300'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              className="mt-1 w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                              checked={selected}
+                              onChange={(event) => {
+                                const checked = event.target.checked;
+                                setSelectedPublishTargets((prev) => ({ ...prev, [platform]: checked }));
+                                setPublishStatus((prev) => {
+                                  const next = { ...prev };
+                                  delete next.__global;
+                                  delete next[platform];
+                                  return next;
+                                });
+                              }}
+                            />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="font-bold text-sm">{PLATFORM_LABELS[platform]}</p>
+                                <span className={`text-[11px] px-2 py-1 rounded-full ${
+                                  requirements.canPublish
+                                    ? 'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                                    : 'bg-amber-50 text-amber-700 border border-amber-100'
+                                }`}>
+                                  {requirements.method === 'api' ? 'API' : requirements.method === 'browser' ? '瀏覽器' : '不可發布'}
+                                </span>
+                              </div>
+                              <p className="text-xs text-slate-500 mt-1">草稿狀態：已加入發布佇列 · 本次發布：{selected ? '已勾選' : '未勾選'}</p>
+                              <p className="text-xs text-slate-500 mt-1">{requirements.reason}</p>
+                              {requirements.missingFields.length > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    openPublishSettings();
+                                  }}
+                                  className="mt-2 text-xs font-bold text-indigo-500 hover:text-indigo-600"
+                                >
+                                  前往發文設定補齊：{requirements.missingFields.map((field) => field.label).join('、')}
+                                </button>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {confirmedPlatforms.map((platform) => {
-                      const support = getPlatformPublishSupport(platform, assets, publishConfig);
+                      const support = getPublishRequirements(platform, assets, publishConfig);
                       const status = publishStatus[platform];
                       return (
                         <div key={platform} className="rounded-2xl border border-slate-200/70 dark:border-slate-800 p-4 bg-white/50 dark:bg-slate-900/20 space-y-2">
@@ -1498,8 +1708,8 @@ function App() {
                   message={providerCapabilities.supportsVideo ? '目前模型可直接理解影片。' : '若主素材是影片，請先完成測試連線能力偵測，確認影片理解已啟用。'}
                 />
                 <InlineAlert
-                  type={mediaSummary.hasMixedMedia ? 'warning' : 'info'}
-                  message={mediaSummary.hasMixedMedia ? '多數平台目前不支援圖片與影片混合素材發布。' : '若要走 API 發布，建議使用純圖片素材。'}
+                  type={mediaSummary.videoCount > 0 ? 'warning' : 'info'}
+                  message={mediaSummary.videoCount > 0 ? 'API 發布影片或混合素材時，請先在發布設定填入 Cloudinary Cloud Name 與 unsigned Upload Preset。' : '純圖片 API 發布可使用 imgbb 中轉公開圖片 URL。'}
                 />
               </div>
             </div>
@@ -1509,10 +1719,12 @@ function App() {
 
       <ConfigDrawer
         isOpen={isConfigOpen}
+        initialTab={configInitialTab}
         onClose={() => setIsConfigOpen(false)}
         onSaved={() => {
           setConfigSnapshot(readStoredLlmConfig(localStorage));
           setProbeSnapshot(readStoredCapabilityProbe(localStorage));
+          setPublishConfig(loadPublishConfig());
         }}
         onProbeUpdated={(probeRecord) => setProbeSnapshot(probeRecord)}
       />
