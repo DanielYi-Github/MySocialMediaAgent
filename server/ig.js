@@ -93,11 +93,12 @@ export async function openLoginBrowser() {
  *
  * @param {object} opts
  * @param {string} opts.caption       - Post caption
- * @param {Array}  [opts.images]      - Array of { base64, mime } (required for IG)
+ * @param {Array}  [opts.assets]      - Array of { base64, mime } (required for IG)
  */
-export async function publish({ caption, images = [], llmConfig = null, forceWebwright = false }) {
-  if (!images || images.length === 0) {
-    throw new Error('Instagram 發文必須包含圖片。');
+export async function publish({ caption, assets = [], images = [], llmConfig = null, forceWebwright = false }) {
+  const mediaAssets = assets.length > 0 ? assets : images;
+  if (!mediaAssets || mediaAssets.length === 0) {
+    throw new Error('Instagram 發文必須包含素材。');
   }
 
   const browser = await chromium.launchPersistentContext(PROFILE_DIR, {
@@ -143,8 +144,8 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
     } catch {}
 
     // Prepare temp files for upload
-    tmpFiles = images.map((img, idx) => {
-      const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+    tmpFiles = mediaAssets.map((img, idx) => {
+      const ext = getFileExtension(img.mime);
       const tmpPath = path.join(os.tmpdir(), `ig-${Date.now()}-${idx}.${ext}`);
       fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
       return tmpPath;
@@ -236,6 +237,14 @@ export async function publish({ caption, images = [], llmConfig = null, forceWeb
       tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
     }
   }
+}
+
+function getFileExtension(mime = '') {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('mov')) return 'mov';
+  if (mime.includes('mp4')) return 'mp4';
+  return 'jpg';
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

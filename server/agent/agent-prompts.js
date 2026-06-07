@@ -144,16 +144,18 @@ export const FACEBOOK_MACRO_SYSTEM_PROMPT = `你是一個 Facebook 發文自動�
 - OPEN_COMPOSER: 開啟 Facebook 發文編輯框（清除覆蓋層、點擊「有什麼新鮮事」）。使用在：流程剛開始，還沒有編輯框出現時。
 - ATTACH_FILES: 上傳圖片到編輯框。使用在：編輯框已開，需要加入圖片時。
 - FILL_CAPTION: 填寫發文文案（使用 keyboard.type 正確處理 Lexical 編輯器）。使用在：圖片已上傳，需要輸入文字時。
-- CLICK_PUBLISH: 點擊發佈按鈕。使用在：文案已填寫，準備發佈時。
-- VERIFY_DONE: 確認發文成功。使用在：點擊發佈後，檢查是否已完成。
+- CLICK_PUBLISH: 點擊發佈相關按鈕。使用在：文案已填寫，準備發佈時；若影片流程進入 Reel 編輯器，也要持續使用它點擊「繼續 / 下一步 / 發佈 / 分享」直到完成。
+- VERIFY_DONE: 確認發文成功。使用在：點擊發佈後，檢查是否已完成；若對話框仍存在或仍看到「繼續 / Reel / 發佈」等按鈕，代表尚未完成。
 
 標準流程：OPEN_COMPOSER → ATTACH_FILES → FILL_CAPTION → CLICK_PUBLISH → VERIFY_DONE → done
+影片 / Reel 流程：OPEN_COMPOSER → ATTACH_FILES → FILL_CAPTION → CLICK_PUBLISH → CLICK_PUBLISH → VERIFY_DONE → done
 
 規則：
 1. 每次只執行一個巨集。
 2. 若某巨集成功，繼續下一個。若失敗，可重試一次，第二次失敗則跳到下一個巨集或回傳 fail。
 3. 不要因為截圖無法確認結果就無限重試同一個巨集。
-4. 當 VERIFY_DONE 回傳成功，或對話框已關閉，立即回傳 done。`;
+4. 若是影片貼文，Facebook 可能先進入 Reel 編輯器；看到「繼續 / 下一步 / Reel / 發佈 / 分享」時，不要宣告失敗，優先再次使用 CLICK_PUBLISH 推進流程。
+5. 當 VERIFY_DONE 回傳成功，或對話框已關閉，立即回傳 done。`;
 
 /**
  * Build the user prompt for a Facebook macro-action agent step.

@@ -23,7 +23,9 @@ export async function openComposer(page) {
         await el.click();
         await page.waitForTimeout(1000);
       }
-    } catch {}
+    } catch (error) {
+      void error;
+    }
   }
 
   // Click composer
@@ -47,7 +49,9 @@ export async function openComposer(page) {
         await el.click();
         return;
       }
-    } catch {}
+    } catch (error) {
+      void error;
+    }
   }
 
   throw new Error('openComposer: Could not find composer element');
@@ -62,7 +66,6 @@ export async function attachFiles(page, files) {
     throw new Error('attachFiles: No files provided');
   }
 
-  const dialog = page.locator('div[role="dialog"]');
   let attached = false;
 
   // Try filechooser path first
@@ -90,7 +93,9 @@ export async function attachFiles(page, files) {
           attached = true;
           break;
         }
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     }
 
     if (!photoClicked) {
@@ -111,7 +116,9 @@ export async function attachFiles(page, files) {
         await fileInputs.nth(i).setInputFiles(files);
         attached = true;
         break;
-      } catch {}
+      } catch (error) {
+        void error;
+      }
     }
   }
 
@@ -137,32 +144,101 @@ export async function fillCaption(page, caption) {
  * Click the publish/post button inside the dialog.
  */
 export async function clickPublish(page) {
-  const publishSelectors = [
-    'div[role="dialog"] [aria-label="Post"]',
-    'div[role="dialog"] [aria-label="發貼文"]',
-    'div[role="dialog"] [aria-label="發佈"]',
-    'div[role="dialog"] [aria-label="發布"]',
-    'div[role="dialog"] [aria-label="分享"]',
-    'div[role="dialog"] [aria-label="繼續"]',
-    'div[role="dialog"] div[role="button"]:has-text("Post")',
-    'div[role="dialog"] div[role="button"]:has-text("發貼文")',
-    'div[role="dialog"] div[role="button"]:has-text("發布")',
-    'div[role="dialog"] div[role="button"]:has-text("發佈")',
-    'div[role="dialog"] div[role="button"]:has-text("繼續")',
-    'div[role="dialog"] div[role="button"]:has-text("分享")',
+  const stagedSelectors = [
+    [
+      'div[role="dialog"] [aria-label="繼續"]',
+      '[role="button"][aria-label="繼續"]',
+      'div[role="dialog"] [aria-label="下一步"]',
+      '[role="button"][aria-label="下一步"]',
+      'div[role="dialog"] [aria-label="Next"]',
+      '[role="button"][aria-label="Next"]',
+      'div[role="dialog"] div[role="button"]:has-text("繼續")',
+      '[role="button"]:has-text("繼續")',
+      'div[role="dialog"] div[role="button"]:has-text("下一步")',
+      '[role="button"]:has-text("下一步")',
+      'div[role="dialog"] div[role="button"]:has-text("Next")',
+      '[role="button"]:has-text("Next")',
+    ],
+    [
+      'div[role="dialog"] [aria-label="Post"]',
+      '[role="button"][aria-label="Post"]',
+      'div[role="dialog"] [aria-label="發貼文"]',
+      '[role="button"][aria-label="發貼文"]',
+      'div[role="dialog"] [aria-label="發佈"]',
+      '[role="button"][aria-label="發佈"]',
+      'div[role="dialog"] [aria-label="發布"]',
+      '[role="button"][aria-label="發布"]',
+      'div[role="dialog"] [aria-label="分享"]',
+      '[role="button"][aria-label="分享"]',
+      'div[role="dialog"] [aria-label="傳送給朋友或在個人檔案上發佈。"]',
+      '[role="button"][aria-label="傳送給朋友或在個人檔案上發佈。"]',
+      'div[role="dialog"] div[role="button"]:has-text("Post")',
+      '[role="button"]:has-text("Post")',
+      'div[role="dialog"] div[role="button"]:has-text("發貼文")',
+      '[role="button"]:has-text("發貼文")',
+      'div[role="dialog"] div[role="button"]:has-text("發布")',
+      '[role="button"]:has-text("發布")',
+      'div[role="dialog"] div[role="button"]:has-text("發佈")',
+      '[role="button"]:has-text("發佈")',
+      'div[role="dialog"] div[role="button"]:has-text("分享")',
+      '[role="button"]:has-text("分享")',
+    ],
   ];
 
-  for (const sel of publishSelectors) {
-    try {
-      const el = page.locator(sel).first();
-      if (await el.isVisible({ timeout: 1000 })) {
-        await el.click();
-        return;
+  let clicked = false;
+
+  for (let round = 0; round < 4; round += 1) {
+    let clickedThisRound = false;
+
+    for (const selectors of stagedSelectors) {
+      for (const sel of selectors) {
+        try {
+          const el = page.locator(sel).first();
+          if (await el.isVisible({ timeout: 1200 })) {
+            await el.scrollIntoViewIfNeeded().catch(() => {});
+            await el.click({ force: true, timeout: 3000 });
+            clicked = true;
+            clickedThisRound = true;
+            await page.waitForTimeout(1800);
+            break;
+          }
+        } catch (error) {
+          void error;
+        }
       }
-    } catch {}
+      if (!clickedThisRound) {
+        const roleMatchers = selectors.some((selector) => selector.includes('繼續'))
+          ? [/^繼續$/, /^下一步$/, /^Next$/i]
+          : [/^Post$/i, /^發貼文$/, /^發佈$/, /^發布$/, /^分享$/, /^傳送給朋友或在個人檔案上發佈。$/];
+
+        for (const matcher of roleMatchers) {
+          try {
+            const el = page.getByRole('button', { name: matcher }).first();
+            if (await el.isVisible({ timeout: 1200 })) {
+              await el.scrollIntoViewIfNeeded().catch(() => {});
+              await el.click({ force: true, timeout: 3000 });
+              clicked = true;
+              clickedThisRound = true;
+              await page.waitForTimeout(1800);
+              break;
+            }
+          } catch (error) {
+            void error;
+          }
+        }
+      }
+      if (clickedThisRound) break;
+    }
+
+    if (!clickedThisRound) {
+      if (clicked) return;
+      break;
+    }
   }
 
-  throw new Error('clickPublish: Could not find publish button');
+  if (!clicked) {
+    throw new Error('clickPublish: Could not find publish button');
+  }
 }
 
 /**
@@ -184,7 +260,35 @@ export async function verifyDone(page) {
       if (await el.isVisible({ timeout: 2000 })) {
         return true;
       }
-    } catch {}
+    } catch (error) {
+      void error;
+    }
+  }
+
+  const unfinishedSelectors = [
+    'div[role="dialog"] [aria-label="繼續"]',
+    'div[role="dialog"] [aria-label="下一步"]',
+    'div[role="dialog"] [aria-label="發佈"]',
+    'div[role="dialog"] [aria-label="發布"]',
+    'div[role="dialog"] [aria-label="分享"]',
+    'div[role="dialog"] div[role="button"]:has-text("繼續")',
+    'div[role="dialog"] div[role="button"]:has-text("下一步")',
+    'div[role="dialog"] div[role="button"]:has-text("發布")',
+    'div[role="dialog"] div[role="button"]:has-text("發佈")',
+    'div[role="dialog"] div[role="button"]:has-text("分享")',
+    'div[role="dialog"]:has-text("編輯 Reel")',
+    'div[role="dialog"]:has-text("Reel")',
+  ];
+
+  for (const sel of unfinishedSelectors) {
+    try {
+      const el = page.locator(sel).first();
+      if (await el.isVisible({ timeout: 1200 })) {
+        return false;
+      }
+    } catch (error) {
+      void error;
+    }
   }
 
   // If no success indicator found but also no dialog, consider it done
@@ -194,7 +298,9 @@ export async function verifyDone(page) {
     if (!visible) {
       return true; // dialog closed = post succeeded
     }
-  } catch {}
+  } catch (error) {
+    void error;
+  }
 
-  return true; // optimistic: assume success if nothing screamed error
+  return false;
 }

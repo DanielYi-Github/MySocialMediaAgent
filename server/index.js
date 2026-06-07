@@ -18,6 +18,7 @@ import {
   getProxyErrorMessage,
   validateProxyTarget,
 } from './proxy-security.js';
+import { getMediaCacheEntry, storeMediaDataUrl } from './media-cache.js';
 
 const app = express();
 const PORT = 3001;
@@ -25,6 +26,35 @@ const PORT = 3001;
 // Allow requests from the Vite dev server and built preview
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:4173'] }));
 app.use(express.json({ limit: '100mb' }));
+
+app.post('/api/media-cache', async (req, res) => {
+  const { dataUrl, mime, fileName } = req.body || {};
+  if (!dataUrl) return res.status(400).json({ error: 'Missing dataUrl' });
+
+  try {
+    const { id, mime: resolvedMime } = storeMediaDataUrl({ dataUrl, mime, fileName });
+    const host = req.get('host') || `localhost:${PORT}`;
+    const protocol = req.protocol || 'http';
+    res.json({
+      id,
+      mime: resolvedMime,
+      url: `${protocol}://${host}/api/media-cache/${id}`,
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.get('/api/media-cache/:id', async (req, res) => {
+  const entry = getMediaCacheEntry(req.params.id);
+  if (!entry) {
+    return res.status(404).json({ error: 'Media cache entry not found' });
+  }
+
+  res.setHeader('Content-Type', entry.mime);
+  res.setHeader('Cache-Control', 'private, max-age=1800');
+  res.send(entry.buffer);
+});
 
 // --- XHS login status ---
 // GET /api/xhs/status → { loggedIn: boolean }
@@ -95,14 +125,14 @@ app.post('/api/llm/proxy', async (req, res) => {
 });
 
 // --- Publish to XHS ---
-// POST /api/xhs/publish → { title, content, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig?, forceWebwright? }
+// POST /api/xhs/publish → { title, content, assets?: [{base64, mime}], images?: [...], imageBase64?, imageMime?, llmConfig?, forceWebwright? }
 app.post('/api/xhs/publish', async (req, res) => {
-  const { title, content, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
+  const { title, content, assets, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
   if (!content) return res.status(400).json({ error: '內容不可為空' });
 
   try {
-    const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
-    const result = await publish({ title, content, images: finalImages, llmConfig, forceWebwright });
+    const finalAssets = assets || images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
+    const result = await publish({ title, content, assets: finalAssets, llmConfig, forceWebwright });
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -136,12 +166,12 @@ app.post('/api/fb/login', async (req, res) => {
   }
 });
 
-// POST /api/fb/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig? }
+// POST /api/fb/publish → { caption, assets?: [{base64, mime}], images?: [...], imageBase64?, imageMime?, llmConfig? }
 app.post('/api/fb/publish', async (req, res) => {
-  const { caption, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
+  const { caption, assets, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
   try {
-    const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
-    const result = await fbPublish({ caption, images: finalImages, llmConfig, forceWebwright });
+    const finalAssets = assets || images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
+    const result = await fbPublish({ caption, assets: finalAssets, llmConfig, forceWebwright });
     res.json(result);
   } catch (err) {
     console.error('fb/publish error:', err.message);
@@ -180,12 +210,12 @@ app.post('/api/ig/login', async (req, res) => {
   }
 });
 
-// POST /api/ig/publish → { caption, images?: [{base64, mime}], imageBase64?, imageMime?, llmConfig?, forceWebwright? }
+// POST /api/ig/publish → { caption, assets?: [{base64, mime}], images?: [...], imageBase64?, imageMime?, llmConfig?, forceWebwright? }
 app.post('/api/ig/publish', async (req, res) => {
-  const { caption, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
+  const { caption, assets, images, imageBase64, imageMime, llmConfig, forceWebwright } = req.body;
   try {
-    const finalImages = images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
-    const result = await igPublish({ caption, images: finalImages, llmConfig, forceWebwright });
+    const finalAssets = assets || images || (imageBase64 ? [{ base64: imageBase64, mime: imageMime }] : []);
+    const result = await igPublish({ caption, assets: finalAssets, llmConfig, forceWebwright });
     res.json(result);
   } catch (err) {
     console.error('ig/publish error:', err.message);

@@ -1,11 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Settings, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import axios from 'axios';
 import {
+  CAPABILITY_PROBE_STORAGE_KEY,
+  buildCapabilityProbeRequest,
   PROVIDERS,
   buildTestRequest,
+  getEffectiveProviderCapabilities,
   getDefaultConfig,
+  isCapabilityProbeMatch,
   normalizeConfig,
+  normalizeCapabilityProbeResponse,
+  readStoredCapabilityProbe,
   requiresApiKey,
   validateProviderConfig,
 } from '../lib/providers';
@@ -17,34 +23,47 @@ const DEFAULT_PUBLISH_CONFIG = {
   imgbbKey: '',
 };
 
-export default function ConfigDrawer({ isOpen, onClose }) {
-  const [config, setConfig] = useState(getDefaultConfig());
-  const [publishConfig, setPublishConfig] = useState(DEFAULT_PUBLISH_CONFIG);
-  const [status, setStatus] = useState('idle');
+export default function ConfigDrawer({ isOpen, onClose, onSaved, onProbeUpdated }) {
+  const [config, setConfig] = useState(() => {
+    const saved = localStorage.getItem('llm_config');
+    return saved ? normalizeConfig(JSON.parse(saved)) : getDefaultConfig();
+  });
+  const [publishConfig, setPublishConfig] = useState(() => {
+    const savedPublish = localStorage.getItem('publish_config');
+    return savedPublish ? JSON.parse(savedPublish) : DEFAULT_PUBLISH_CONFIG;
+  });
+  const [connectionStatus, setConnectionStatus] = useState('idle');
+  const [probeStatus, setProbeStatus] = useState('idle');
+  const [capabilityProbeResult, setCapabilityProbeResult] = useState(() => {
+    const storedProbe = readStoredCapabilityProbe(localStorage);
+    if (storedProbe && isCapabilityProbeMatch(
+      localStorage.getItem('llm_config')
+        ? normalizeConfig(JSON.parse(localStorage.getItem('llm_config')))
+        : getDefaultConfig(),
+      storedProbe,
+    )) {
+      return storedProbe;
+    }
+    return null;
+  });
+  const [capabilityProbeError, setCapabilityProbeError] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [tab, setTab] = useState('llm'); // 'llm' | 'publish'
-
-  useEffect(() => {
-    const saved = localStorage.getItem('llm_config');
-    if (saved) setConfig(normalizeConfig(JSON.parse(saved)));
-    const savedPublish = localStorage.getItem('publish_config');
-    if (savedPublish) setPublishConfig(JSON.parse(savedPublish));
-  }, []);
 
   const handleSave = () => {
     try {
       const safeConfig = validateProviderConfig(config);
       localStorage.setItem('llm_config', JSON.stringify(safeConfig));
       setConfig(safeConfig);
-      setStatus('idle');
       setErrorMsg('');
     } catch (err) {
       setTab('llm');
-      setStatus('error');
+      setConnectionStatus('error');
       setErrorMsg(err.message);
       return;
     }
     localStorage.setItem('publish_config', JSON.stringify(publishConfig));
+    onSaved?.();
     alert('設定已儲存！');
   };
 
@@ -57,33 +76,103 @@ export default function ConfigDrawer({ isOpen, onClose }) {
       baseUrl: nextDefaults.baseUrl,
       model: nextDefaults.model,
     }));
-    setStatus('idle');
+    setConnectionStatus('idle');
+    setProbeStatus('idle');
+    setCapabilityProbeError('');
     setErrorMsg('');
   };
 
   const currentProvider = PROVIDERS[config.provider] || PROVIDERS.custom;
+  const matchedStoredProbe = readStoredCapabilityProbe(localStorage);
+  const resolvedProbeResult = capabilityProbeResult && isCapabilityProbeMatch(config, capabilityProbeResult)
+    ? capabilityProbeResult
+    : matchedStoredProbe && isCapabilityProbeMatch(config, matchedStoredProbe)
+      ? matchedStoredProbe
+      : null;
+  const effectiveCapabilities = resolvedProbeResult
+    ? getEffectiveProviderCapabilities(config, resolvedProbeResult)
+    : getEffectiveProviderCapabilities(config, null);
+
+  const updateConfigField = (field, value) => {
+    setConfig((prev) => ({ ...prev, [field]: value }));
+    setConnectionStatus('idle');
+    setProbeStatus('idle');
+    setCapabilityProbeError('');
+    setErrorMsg('');
+  };
 
   const testConnection = async () => {
     if (requiresApiKey(config.provider) && !config.apiKey) {
-      setStatus('error');
+      setConnectionStatus('error');
       setErrorMsg('此供應商需要 API Key。');
       return;
     }
 
-    setStatus('testing');
+    setConnectionStatus('testing');
+    setProbeStatus('idle');
+    setCapabilityProbeResult(null);
+    setCapabilityProbeError('');
     setErrorMsg('');
     try {
       const safeConfig = validateProviderConfig(config);
-      const request = buildTestRequest(safeConfig);
-      const resp = await axios.post('http://localhost:3001/api/llm/proxy', {
-        url: request.url,
-        headers: request.headers,
-        data: request.data,
-      });
-      if (resp.status === 200) setStatus('success');
+      try {
+        const request = buildTestRequest(safeConfig);
+        const resp = await axios.post('http://localhost:3001/api/llm/proxy', {
+          url: request.url,
+          headers: request.headers,
+          data: request.data,
+        });
+        if (resp.status === 200) {
+          setConnectionStatus('success');
+        }
+      } catch (err) {
+        const connectionError = err.response?.data?.error?.message || err.message;
+        setConnectionStatus('error');
+        setErrorMsg(connectionError);
+        return;
+      }
+
+      setProbeStatus('testing');
+
+      try {
+        const probeRequest = buildCapabilityProbeRequest(safeConfig);
+        const probeResp = await axios.post('http://localhost:3001/api/llm/proxy', {
+          url: probeRequest.url,
+          headers: probeRequest.headers,
+          data: probeRequest.data,
+        });
+        const normalizedCapabilities = normalizeCapabilityProbeResponse(safeConfig, probeResp.data);
+        const probeRecord = {
+          provider: safeConfig.provider,
+          baseUrl: safeConfig.baseUrl,
+          model: safeConfig.model,
+          source: 'probe',
+          detectedAt: new Date().toISOString(),
+          capabilities: normalizedCapabilities,
+        };
+        localStorage.setItem(CAPABILITY_PROBE_STORAGE_KEY, JSON.stringify(probeRecord));
+        setCapabilityProbeResult(probeRecord);
+        setProbeStatus('success');
+        onProbeUpdated?.(probeRecord);
+      } catch (err) {
+        const probeError = err.response?.data?.error?.message || err.message;
+        const fallbackRecord = {
+          provider: safeConfig.provider,
+          baseUrl: safeConfig.baseUrl,
+          model: safeConfig.model,
+          source: 'static-fallback',
+          detectedAt: new Date().toISOString(),
+          capabilities: getEffectiveProviderCapabilities(safeConfig, null),
+        };
+        localStorage.setItem(CAPABILITY_PROBE_STORAGE_KEY, JSON.stringify(fallbackRecord));
+        setCapabilityProbeResult(fallbackRecord);
+        setProbeStatus('fallback');
+        setCapabilityProbeError(probeError);
+        onProbeUpdated?.(fallbackRecord);
+      }
     } catch (err) {
-      setStatus('error');
-      setErrorMsg(err.response?.data?.error?.message || err.message);
+      setConnectionStatus('error');
+      setErrorMsg(err.message);
     }
   };
 
@@ -143,7 +232,7 @@ export default function ConfigDrawer({ isOpen, onClose }) {
                   type="text"
                   className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-sm"
                   value={config.baseUrl}
-                  onChange={(e) => setConfig({ ...config, baseUrl: e.target.value })}
+                  onChange={(e) => updateConfigField('baseUrl', e.target.value)}
                   placeholder="https://api.openai.com/v1"
                 />
                 <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">可依供應商文件自由調整 endpoint；公開 provider 請使用 HTTPS，本機 provider 可用 localhost HTTP。</p>
@@ -155,7 +244,7 @@ export default function ConfigDrawer({ isOpen, onClose }) {
                   type="password"
                   className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-sm"
                   value={config.apiKey}
-                  onChange={(e) => setConfig({ ...config, apiKey: e.target.value })}
+                  onChange={(e) => updateConfigField('apiKey', e.target.value)}
                   placeholder={currentProvider.apiKeyPlaceholder}
                 />
                 {!requiresApiKey(config.provider) && (
@@ -169,7 +258,7 @@ export default function ConfigDrawer({ isOpen, onClose }) {
                   type="text"
                   className="w-full p-2 border rounded dark:bg-slate-800 dark:border-slate-700 font-mono text-sm"
                   value={config.model}
-                  onChange={(e) => setConfig({ ...config, model: e.target.value })}
+                  onChange={(e) => updateConfigField('model', e.target.value)}
                   placeholder={currentProvider.model || '輸入模型名稱'}
                 />
                 <p className="mt-1 text-xs text-amber-500 dark:text-amber-400">⚠ 必須使用支援視覺（圖片輸入）的模型。</p>
@@ -178,16 +267,23 @@ export default function ConfigDrawer({ isOpen, onClose }) {
               <div className="pt-2">
                 <button
                   onClick={testConnection}
-                  disabled={status === 'testing'}
+                  disabled={connectionStatus === 'testing' || probeStatus === 'testing'}
                   className="flex items-center justify-center gap-2 w-full py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded font-medium transition"
                 >
-                  {status === 'testing' ? <Loader2 className="w-4 h-4 animate-spin" /> : '測試連線'}
-                  {status === 'success' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
-                  {status === 'error' && <AlertCircle className="w-4 h-4 text-red-500" />}
+                  {connectionStatus === 'testing' || probeStatus === 'testing' ? <Loader2 className="w-4 h-4 animate-spin" /> : '測試連線'}
+                  {connectionStatus === 'success' && probeStatus !== 'testing' && <CheckCircle2 className="w-4 h-4 text-green-500" />}
+                  {connectionStatus === 'error' && <AlertCircle className="w-4 h-4 text-red-500" />}
                 </button>
-                {status === 'error' && (
+                {connectionStatus === 'error' && (
                   <p className="mt-2 text-xs text-red-500 bg-red-50 dark:bg-red-900/20 p-2 rounded">{errorMsg}</p>
                 )}
+                <CapabilityProbePanel
+                  connectionStatus={connectionStatus}
+                  probeStatus={probeStatus}
+                  capabilityProbeResult={resolvedProbeResult}
+                  capabilityProbeError={capabilityProbeError}
+                  effectiveCapabilities={effectiveCapabilities}
+                />
               </div>
             </div>
           )}
@@ -280,6 +376,84 @@ export default function ConfigDrawer({ isOpen, onClose }) {
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function CapabilityProbePanel({
+  connectionStatus,
+  probeStatus,
+  capabilityProbeResult,
+  capabilityProbeError,
+  effectiveCapabilities,
+}) {
+  if (connectionStatus === 'idle' && probeStatus === 'idle' && !capabilityProbeResult) return null;
+
+  const capabilityItems = [
+    { key: 'supportsToolUse', label: '工具使用' },
+    { key: 'supportsText', label: '文字理解' },
+    { key: 'supportsImage', label: '圖片理解' },
+    { key: 'supportsVideo', label: '影片理解' },
+    { key: 'supportsMultimodal', label: '多模態' },
+  ];
+
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-950/20 p-3 space-y-3">
+      {probeStatus === 'testing' && (
+        <p className="text-xs text-indigo-500 dark:text-indigo-300">正在檢測模型能力...</p>
+      )}
+
+      {capabilityProbeResult && (
+        <>
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">模型自我回報能力</p>
+            <div className="flex flex-wrap gap-2">
+              {capabilityItems.map((item) => (
+                <span
+                  key={item.key}
+                  className={`px-2 py-1 rounded-full text-[11px] font-medium border ${
+                    capabilityProbeResult.capabilities?.[item.key]
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800'
+                      : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  {item.label}：{capabilityProbeResult.capabilities?.[item.key] ? '支援' : '不支援'}
+                </span>
+              ))}
+            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              {capabilityProbeResult.capabilities?.summary || '無摘要'}
+            </p>
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">目前前端實際採用的能力判斷</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              來源：{capabilityProbeResult.source === 'probe' ? '模型自我回報' : '靜態預設 fallback'}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {capabilityItems.map((item) => (
+                <span
+                  key={`effective-${item.key}`}
+                  className={`px-2 py-1 rounded-full text-[11px] font-medium border ${
+                    effectiveCapabilities?.[item.key]
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-900/20 dark:text-indigo-300 dark:border-indigo-800'
+                      : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'
+                  }`}
+                >
+                  {item.label}：{effectiveCapabilities?.[item.key] ? '啟用' : '停用'}
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
+      {probeStatus === 'fallback' && (
+        <p className="text-xs text-amber-600 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 p-2 rounded">
+          偵測失敗，已回退為預設能力判斷。{capabilityProbeError ? `原因：${capabilityProbeError}` : ''}
+        </p>
+      )}
     </div>
   );
 }

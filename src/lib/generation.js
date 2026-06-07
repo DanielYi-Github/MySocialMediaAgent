@@ -3,7 +3,7 @@ import { validateProviderConfig } from './providers.js';
 const SYSTEM_PROMPT = `你是一個擁有十年社群媒體操盤經驗的品牌文案策略師。
 
 你的任務：
-1. 根據圖片與使用者補充描述，分析畫面中的場景、地標、氛圍、色調。
+1. 根據主素材（可能是圖片或影片）與使用者補充描述，分析畫面中的場景、主題、氛圍、色調或節奏。
 2. 為 Instagram、小紅書、Facebook、Threads 各自生成一篇高品質文案草稿。
 
 【平台詳細規格 — 必須嚴格遵守】
@@ -34,9 +34,9 @@ const SYSTEM_PROMPT = `你是一個擁有十年社群媒體操盤經驗的品牌
 - JSON 結構如下：
 {
   "vision_insight": {
-    "landmark": "場景地點（簡短）",
+    "landmark": "場景地點或主題（簡短）",
     "mood": "整體氛圍（2-4字）",
-    "tone": "色調感受（2-4字）"
+    "tone": "色調、節奏或情緒感受（2-6字）"
   },
   "platforms": {
     "instagram": { "content": "非空字串，含 hashtag" },
@@ -185,16 +185,126 @@ function splitDataUrl(dataUrl) {
   };
 }
 
-export function buildGenerationRequest(config, { imageDataUrls, userContext }, options = {}) {
+function normalizeAssetsInput({ assets, imageDataUrls, primaryAssetId }) {
+  if (Array.isArray(assets) && assets.length > 0) {
+    const primaryAsset = assets.find((asset) => asset.id === primaryAssetId)
+      || assets.find((asset) => asset.isPrimary)
+      || assets[0];
+    return { assets, primaryAsset };
+  }
+
+  const legacyUrls = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls].filter(Boolean);
+  const legacyAssets = legacyUrls.map((url, index) => ({
+    id: `legacy-${index}`,
+    type: 'image',
+    mime: 'image/jpeg',
+    sourceUrl: url,
+    isPrimary: index === 0,
+  }));
+
+  return {
+    assets: legacyAssets,
+    primaryAsset: legacyAssets[0] || null,
+  };
+}
+
+function getTextFromGeminiResponse(response) {
+  const candidates = response?.candidates ?? [];
+  const parts = candidates[0]?.content?.parts ?? [];
+  return parts.map((part) => part.text || '').join('\n');
+}
+
+function buildGeminiInlinePart(asset) {
+  const { mediaType, base64Data } = splitDataUrl(asset.sourceUrl);
+  return {
+    inline_data: {
+      mime_type: mediaType,
+      data: base64Data,
+    },
+  };
+}
+
+function getEffectiveGenerationCapabilities(options = {}) {
+  const capabilities = options.capabilities || {};
+  return {
+    supportsImage: capabilities.supportsImage !== false,
+    supportsVideo: capabilities.supportsVideo === true,
+  };
+}
+
+function buildOpenAiCompatibleMediaPart(asset, capabilities) {
+  if (asset.type === 'video') {
+    if (!capabilities.supportsVideo) {
+      throw new Error('目前這個模型雖已連線成功，但尚未確認支援影片理解。請先完成能力測試，或改用支援影片的模型。');
+    }
+    return { type: 'video_url', video_url: { url: asset.sourceUrl } };
+  }
+
+  if (!capabilities.supportsImage) {
+    throw new Error('目前這個模型不支援圖片理解。');
+  }
+  return { type: 'image_url', image_url: { url: asset.sourceUrl } };
+}
+
+function buildPromptPrefix(primaryAsset, analysisMode) {
+  if (analysisMode === 'video_frames') {
+    return '以下是從同一支影片等時間抽取的多個關鍵畫面，請綜合判斷場景、動作、節奏與情緒變化，不要把它們當成彼此無關的照片。';
+  }
+  if (!primaryAsset) return '主素材類型未知';
+  return primaryAsset.type === 'video'
+    ? '主素材是一支影片，請理解影片中的畫面、節奏、動作與情緒變化。'
+    : '主素材是一張圖片，請理解畫面內容與氛圍。';
+}
+
+function getAnalysisAssets(assets, primaryAsset, analysisMode) {
+  if (analysisMode === 'video_frames') {
+    return assets.filter((asset) => asset?.sourceUrl);
+  }
+  return primaryAsset ? [primaryAsset] : [];
+}
+
+export function buildGenerationRequest(config, { assets, imageDataUrls, userContext, primaryAssetId }, options = {}) {
   const safeConfig = validateProviderConfig(config, options);
-  // support single string for backward-compat
-  const urls = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls];
-  // Most vision models only support one image per request; always use the first (primary) image.
-  const primaryUrl = urls[0];
-  const userPrompt = `使用者補充描述：${userContext || '無'}。\n請根據圖片與這段描述，輸出四平台草稿。`;
+  const { assets: normalizedAssets, primaryAsset } = normalizeAssetsInput({ assets, imageDataUrls, primaryAssetId });
+  const capabilities = getEffectiveGenerationCapabilities(options);
+  const analysisMode = options.analysisMode || null;
+  const analysisAssets = getAnalysisAssets(normalizedAssets, primaryAsset, analysisMode);
+
+  if (!primaryAsset?.sourceUrl) {
+    throw new Error('請先提供主素材。');
+  }
+
+  const userPrompt = `${buildPromptPrefix(primaryAsset, analysisMode)}\n使用者補充描述：${userContext || '無'}。\n請根據主素材與這段描述，輸出四平台草稿。`;
+
+  if (safeConfig.protocol === 'gemini') {
+    return {
+      url: `${safeConfig.baseUrl}/models/${safeConfig.model}:generateContent`,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': safeConfig.apiKey,
+      },
+      data: {
+        contents: [
+          {
+            parts: [
+              ...analysisAssets.map((asset) => buildGeminiInlinePart(asset)),
+              { text: userPrompt },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.7,
+        },
+      },
+      systemPrompt: SYSTEM_PROMPT,
+      userPrompt,
+    };
+  }
 
   if (safeConfig.protocol === 'anthropic') {
-    const { mediaType, base64Data } = splitDataUrl(primaryUrl);
+    if (primaryAsset.type === 'video') {
+      throw new Error('目前此供應商的 Messages 路徑尚未接上影片輸入格式。若模型確實支援影片，請改用相容的 OpenAI-compatible 或 Gemini 路徑。');
+    }
 
     return {
       url: `${safeConfig.baseUrl}/messages`,
@@ -212,10 +322,13 @@ export function buildGenerationRequest(config, { imageDataUrls, userContext }, o
             role: 'user',
             content: [
               { type: 'text', text: userPrompt },
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mediaType, data: base64Data },
-              },
+              ...analysisAssets.map((asset) => {
+                const { mediaType, base64Data } = splitDataUrl(asset.sourceUrl);
+                return {
+                  type: 'image',
+                  source: { type: 'base64', media_type: mediaType, data: base64Data },
+                };
+              }),
             ],
           },
         ],
@@ -241,7 +354,7 @@ export function buildGenerationRequest(config, { imageDataUrls, userContext }, o
           role: 'user',
           content: [
             { type: 'text', text: userPrompt },
-            { type: 'image_url', image_url: { url: primaryUrl } },
+            ...analysisAssets.map((asset) => buildOpenAiCompatibleMediaPart(asset, capabilities)),
           ],
         },
       ],
@@ -251,10 +364,16 @@ export function buildGenerationRequest(config, { imageDataUrls, userContext }, o
   };
 }
 
-export function buildSinglePlatformGenerationRequest(config, platform, { imageDataUrls, userContext, currentContent }, options = {}) {
+export function buildSinglePlatformGenerationRequest(config, platform, { assets, imageDataUrls, userContext, currentContent, primaryAssetId }, options = {}) {
   const safeConfig = validateProviderConfig(config, options);
-  const urls = Array.isArray(imageDataUrls) ? imageDataUrls : [imageDataUrls];
-  const primaryUrl = urls[0];
+  const { assets: normalizedAssets, primaryAsset } = normalizeAssetsInput({ assets, imageDataUrls, primaryAssetId });
+  const capabilities = getEffectiveGenerationCapabilities(options);
+  const analysisMode = options.analysisMode || null;
+  const analysisAssets = getAnalysisAssets(normalizedAssets, primaryAsset, analysisMode);
+
+  if (!primaryAsset?.sourceUrl) {
+    throw new Error('請先提供主素材。');
+  }
   
   const platformSpecs = {
     instagram: `▸ Instagram
@@ -300,10 +419,37 @@ ${currentContent ? `【目前已生成的文案（請提供不同角度的全新
   "content": "文案內容，需包含對應的 emoji 或 hashtag"
 }`;
 
-  const userPrompt = `使用者補充描述：${userContext || '無'}。\n請根據圖片與這段描述，為 ${name} 重新生成一份最符合其特性、更加精采的文案。`;
+  const userPrompt = `${buildPromptPrefix(primaryAsset, analysisMode)}\n使用者補充描述：${userContext || '無'}。\n請根據主素材與這段描述，為 ${name} 重新生成一份最符合其特性、更加精采的文案。`;
+
+  if (safeConfig.protocol === 'gemini') {
+    return {
+      url: `${safeConfig.baseUrl}/models/${safeConfig.model}:generateContent`,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': safeConfig.apiKey,
+      },
+      data: {
+        contents: [
+          {
+            parts: [
+              ...analysisAssets.map((asset) => buildGeminiInlinePart(asset)),
+              { text: `${systemPrompt}\n\n${userPrompt}` },
+            ],
+          },
+        ],
+        generationConfig: {
+          temperature: 0.8,
+        },
+      },
+      systemPrompt,
+      userPrompt,
+    };
+  }
 
   if (safeConfig.protocol === 'anthropic') {
-    const { mediaType, base64Data } = splitDataUrl(primaryUrl);
+    if (primaryAsset.type === 'video') {
+      throw new Error('目前此供應商的 Messages 路徑尚未接上影片輸入格式。若模型確實支援影片，請改用相容的 OpenAI-compatible 或 Gemini 路徑。');
+    }
 
     return {
       url: `${safeConfig.baseUrl}/messages`,
@@ -321,10 +467,13 @@ ${currentContent ? `【目前已生成的文案（請提供不同角度的全新
             role: 'user',
             content: [
               { type: 'text', text: userPrompt },
-              {
-                type: 'image',
-                source: { type: 'base64', media_type: mediaType, data: base64Data },
-              },
+              ...analysisAssets.map((asset) => {
+                const { mediaType, base64Data } = splitDataUrl(asset.sourceUrl);
+                return {
+                  type: 'image',
+                  source: { type: 'base64', media_type: mediaType, data: base64Data },
+                };
+              }),
             ],
           },
         ],
@@ -350,7 +499,7 @@ ${currentContent ? `【目前已生成的文案（請提供不同角度的全新
           role: 'user',
           content: [
             { type: 'text', text: userPrompt },
-            { type: 'image_url', image_url: { url: primaryUrl } },
+            ...analysisAssets.map((asset) => buildOpenAiCompatibleMediaPart(asset, capabilities)),
           ],
         },
       ],
@@ -363,7 +512,9 @@ ${currentContent ? `【目前已生成的文案（請提供不同角度的全新
 export function normalizeSinglePlatformResponse(config, response) {
   const rawText = config.protocol === 'anthropic'
     ? getTextFromAnthropicResponse(response)
-    : getTextFromOpenAiResponse(response);
+    : config.protocol === 'gemini'
+      ? getTextFromGeminiResponse(response)
+      : getTextFromOpenAiResponse(response);
 
   console.log('[single generation] raw model response:', rawText);
 
@@ -406,7 +557,9 @@ export function normalizeSinglePlatformResponse(config, response) {
 export function normalizeGenerationResponse(config, response) {
   const rawText = config.protocol === 'anthropic'
     ? getTextFromAnthropicResponse(response)
-    : getTextFromOpenAiResponse(response);
+    : config.protocol === 'gemini'
+      ? getTextFromGeminiResponse(response)
+      : getTextFromOpenAiResponse(response);
 
   console.log('[generation] raw model response:', rawText);
 
@@ -430,6 +583,11 @@ export function normalizeGenerationResponse(config, response) {
 
   return {
     analyzer: {
+      landmark: parsed?.vision_insight?.landmark || '',
+      mood: parsed?.vision_insight?.mood || '',
+      tone: parsed?.vision_insight?.tone || '',
+    },
+    mediaInsight: {
       landmark: parsed?.vision_insight?.landmark || '',
       mood: parsed?.vision_insight?.mood || '',
       tone: parsed?.vision_insight?.tone || '',

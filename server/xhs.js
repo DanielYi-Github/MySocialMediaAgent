@@ -135,9 +135,10 @@ export async function openLoginBrowser() {
  * @param {object} opts
  * @param {string} opts.title        - Post title (max 20 chars)
  * @param {string} opts.content      - Post body text
- * @param {Array}  [opts.images]     - Array of { base64, mime }
+ * @param {Array}  [opts.assets]     - Array of { base64, mime }
  */
-export async function publish({ title, content, images = [], llmConfig = null, forceWebwright = false }) {
+export async function publish({ title, content, assets = [], images = [], llmConfig = null, forceWebwright = false }) {
+  const mediaAssets = assets.length > 0 ? assets : images;
   const browser = await chromium.launchPersistentContext(PROFILE_DIR, {
     headless: false,
     viewport: { width: 1280, height: 800 },
@@ -202,9 +203,9 @@ export async function publish({ title, content, images = [], llmConfig = null, f
     // Extra settle time for Vue event handler binding
     await page.waitForTimeout(800);
 
-    if (images && images.length > 0) {
-      tmpFiles = images.map((img, idx) => {
-        const ext = (img.mime || '').includes('png') ? 'png' : 'jpg';
+    if (mediaAssets && mediaAssets.length > 0) {
+      tmpFiles = mediaAssets.map((img, idx) => {
+        const ext = getFileExtension(img.mime);
         const tmpPath = path.join(os.tmpdir(), `xhs-${Date.now()}-${idx}.${ext}`);
         fs.writeFileSync(tmpPath, Buffer.from(img.base64, 'base64'));
         return tmpPath;
@@ -391,7 +392,7 @@ export async function publish({ title, content, images = [], llmConfig = null, f
     }
 
     // Upload images if provided
-    if (images && images.length > 0) {
+    if (mediaAssets && mediaAssets.length > 0) {
 
       // Primary strategy: native fileChooser interception by clicking "上传图片" button.
       let uploaded = false;
@@ -631,4 +632,12 @@ export async function publish({ title, content, images = [], llmConfig = null, f
       tmpFiles.forEach(f => { try { fs.unlinkSync(f); } catch {} });
     }
   }
+}
+
+function getFileExtension(mime = '') {
+  if (mime.includes('png')) return 'png';
+  if (mime.includes('webm')) return 'webm';
+  if (mime.includes('mov')) return 'mov';
+  if (mime.includes('mp4')) return 'mp4';
+  return 'jpg';
 }

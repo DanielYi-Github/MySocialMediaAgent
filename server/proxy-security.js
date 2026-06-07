@@ -20,6 +20,24 @@ export function validateProxyTarget({ url, method = 'POST' }) {
     throw createProxyValidationError('Proxy target must use HTTP or HTTPS');
   }
 
+  if (LOCAL_MODEL_HOSTS.has(hostname)) {
+    if (!parsedUrl.port) {
+      throw createProxyValidationError('Loopback model endpoints must include an explicit port');
+    }
+    if (parsedUrl.port === '3001') {
+      throw createProxyValidationError('Proxy target must not point back to this local proxy');
+    }
+    return { url: parsedUrl.toString(), method: normalizedMethod };
+  }
+
+  if (parsedUrl.protocol !== 'https:') {
+    throw createProxyValidationError('Proxy target must use HTTPS unless it is a local loopback model endpoint');
+  }
+
+  if (isPrivateNetworkHost(hostname)) {
+    throw createProxyValidationError('Proxy target must not use a private network host');
+  }
+
   return { url: parsedUrl.toString(), method: normalizedMethod };
 }
 
@@ -45,18 +63,22 @@ export function getProxyErrorMessage(err) {
       message = responseData.error.message;
     } else if (typeof responseData.error === 'string') {
       message = responseData.error;
+    } else if (typeof responseData.message === 'string') {
+      message = responseData.message;
+    } else if (typeof responseData.detail === 'string') {
+      message = responseData.detail;
+    } else if (Array.isArray(responseData.errors) && responseData.errors.length > 0) {
+      message = responseData.errors
+        .map((item) => item?.message || item?.detail || JSON.stringify(item))
+        .join('; ');
+    } else if (typeof responseData === 'string') {
+      message = responseData;
+    } else {
+      message = JSON.stringify(responseData);
     }
   }
 
   return redactSensitiveText(message);
-}
-
-function isLocalModelUrl(parsedUrl) {
-  return (
-    parsedUrl.protocol === 'http:' &&
-    LOCAL_MODEL_HOSTS.has(parsedUrl.hostname.toLowerCase()) &&
-    Boolean(parsedUrl.port)
-  );
 }
 
 function createProxyValidationError(message) {
